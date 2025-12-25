@@ -1,7 +1,7 @@
 ﻿using UnityEngine;
-using static Thry.ThryEditor.TexturePacker;
+using static Thry.TexturePacker;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class TexturePackerConfig : ScriptableObject
     {

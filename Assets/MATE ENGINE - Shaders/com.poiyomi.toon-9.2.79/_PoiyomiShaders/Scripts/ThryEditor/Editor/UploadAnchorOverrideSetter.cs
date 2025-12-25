@@ -1,12 +1,13 @@
 using System;
 using System.Linq;
+using Thry;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Thry.ThryEditor.UploadCallbacks // sry Pumkin for taking away your namespace. Just tring to tidy up a bit
+namespace Pumkin.UploadCallbacks
 {
-    public static class UploadAnchorOverrideSetter // Cool Pumkin Stuff. No Thry stuff
+    public static class UploadAnchorOverrideSetter
     {
         const string SkipAvatarObjectName = "AutoAnchorDisabled";
 
@@ -24,18 +25,18 @@ namespace Thry.ThryEditor.UploadCallbacks // sry Pumkin for taking away your nam
 
         static bool Enabled
         {
-            get => Config.Instance.autoSetAnchorOverride;
-            set => Config.Instance.autoSetAnchorOverride = value;
+            get => Config.Singleton.autoSetAnchorOverride;
+            set => Config.Singleton.autoSetAnchorOverride = value;
         }
 
         static bool AskedOnce
         {
-            get => Config.Instance.autoSetAnchorAskedOnce;
-            set => Config.Instance.autoSetAnchorAskedOnce = value;
+            get => Config.Singleton.autoSetAnchorAskedOnce;
+            set => Config.Singleton.autoSetAnchorAskedOnce = value;
         }
 
-        static HumanBodyBones HumanBoneAnchor => Config.Instance.humanBoneAnchor;
-        static string AnchorName => Config.Instance.anchorOverrideObjectName;
+        static HumanBodyBones HumanBoneAnchor => Config.Singleton.humanBoneAnchor;
+        static string AnchorName => Config.Singleton.anchorOverrideObjectName;
 
         public static bool ShouldSkipAvatar(GameObject avatar)
         {
@@ -54,7 +55,7 @@ namespace Thry.ThryEditor.UploadCallbacks // sry Pumkin for taking away your nam
 
                 Enabled = EditorUtility.DisplayDialog(DialogTitle, DialogMessage, DialogYes, DialogNo);
                 AskedOnce = true;
-                Config.Instance.Save();
+                Config.Singleton.Save();
             }
 
             if(!Enabled)

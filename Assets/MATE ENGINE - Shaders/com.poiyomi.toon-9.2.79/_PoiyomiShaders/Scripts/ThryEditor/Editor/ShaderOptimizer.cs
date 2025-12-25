@@ -21,11 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**/
 
-//#define DEBUG_IF_DEF_REMOVAL
-
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEditor;
 using System;
 using System.IO;
@@ -36,28 +33,21 @@ using System.Linq;
 using System.Security.Cryptography;
 using Object = UnityEngine.Object;
 using System.Reflection;
-using Thry.ThryEditor.Helpers;
-using Thry.ThryEditor.Drawers;
-using JetBrains.Annotations;
-
 #if VRC_SDK_VRCSDK3
 using VRC.SDKBase;
 #endif
-
 #if VRC_SDK_VRCSDK2
 using VRCSDK2;
 #endif
-
 #if VRC_SDK_VRCSDK2 || VRC_SDK_VRCSDK3
 using VRC.SDKBase.Editor.BuildPipeline;
 #endif
-
 #if VRC_SDK_VRCSDK3 && !UDON
 using static VRC.SDK3.Avatars.Components.VRCAvatarDescriptor;
 using VRC.SDK3.Avatars.Components;
 #endif
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     
     public enum LightMode
@@ -85,6 +75,7 @@ namespace Thry.ThryEditor
         public const string TAG_ALL_MATERIALS_GUIDS_USING_THIS_LOCKED_SHADER = "AllLockedGUIDS";
         //When locking don't include code from define blocks that are not enabled
         const bool REMOVE_UNUSED_IF_DEFS = true;
+        const bool DEBUG_IF_DEF_REMOVAL = false;
 
         // For some reason, 'if' statements with replaced constant (literal) conditions cause some compilation error
         // So until that is figured out, branches will be removed by default
@@ -150,7 +141,7 @@ namespace Thry.ThryEditor
         // attribute if it exists.
         public static readonly string TessellationMaxFactorPropertyName = "_TessellationFactorMax";
 
-        enum LightModeType { None, ForwardBase, ForwardAdd, ShadowCaster, Meta, DepthOnly, DepthNormals };
+        enum LightModeType { None, ForwardBase, ForwardAdd, ShadowCaster, Meta };
         private static LightModeType CurrentLightmode = LightModeType.None;
 
         // In-order list of inline sampler state names that will be replaced by InlineSamplerState() lines
@@ -215,17 +206,7 @@ namespace Thry.ThryEditor
             "UnityStandardParticles.cginc",
             "UnityStandardParticleShadow.cginc",
             "UnityStandardShadow.cginc",
-            "UnityStandardUtils.cginc",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl",
-            "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/RealtimeLights.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl",
-            "Packages/com.unity.render-pipelines.core/ShaderLibrary/FoveatedRenderingKeywords.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ProbeVolumeVariants.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/RenderingLayers.hlsl",
-            "Packages/com.unity.render-pipelines.core/ShaderLibrary/MetaPass.hlsl",
-            "Packages/com.unity.render-pipelines.universal/ShaderLibrary/MotionVectorsCommon.hlsl"
+            "UnityStandardUtils.cginc"
         };
         
         public static readonly HashSet<char> ValidSeparators = new HashSet<char>() { ' ', '\t', '\r', '\n', ';', ',', '.', '(', ')', '[', ']', '{', '}', '>', '<', '=', '!', '&', '|', '^', '+', '-', '*', '/', '#' };
@@ -233,7 +214,7 @@ namespace Thry.ThryEditor
         public static readonly HashSet<string> DontRemoveIfBranchesKeywords = new HashSet<string>() { "UNITY_SINGLE_PASS_STEREO", "FORWARD_BASE_PASS", "FORWARD_ADD_PASS", "POINT", "SPOT" };
         public static readonly HashSet<string> KeywordsUsedByPragmas = new HashSet<string>() {  };
 
-        public static readonly HashSet<string> ValidPropertyDataTypes = new HashSet<string>()
+        public static readonly string[] ValidPropertyDataTypes = new string[]
         {
             "int",
             "float",
@@ -279,37 +260,6 @@ namespace Thry.ThryEditor
             "shader_is_using_thry_editor"
         };
 
-        public enum RenderPipeline
-        {
-            BuiltIn,
-            URP,
-            Other
-        };
-
-        public static readonly string[] PreprocessStructureStart = new string[]
-        {
-            "CGINCLUDE",
-            "CBUFFER_START(UnityPerMaterial)"
-        };
-
-        public static readonly string[] PreprocessStructureEnd = new string[]
-        {
-            "ENDCG",
-            "CBUFFER_END"
-        };
-
-        public static readonly string[] CodeBlockStart = new string[]
-        {
-            "CGPROGRAM",
-            "HLSLPROGRAM"
-        };
-
-        public static readonly string[] CodeBlockEnd = new string[]
-        {
-            "ENDCG",
-            "ENDHLSL"
-        };
-
         public enum PropertyType
         {
             Vector,
@@ -322,41 +272,6 @@ namespace Thry.ThryEditor
             public string name;
             public Vector4 value;
             public string lastDeclarationType;
-
-            public void ToCode(StringBuilder sb)
-            {
-                if (Config.Instance.enableDeveloperMode)
-                {
-                    sb.Append(" /*");
-                    sb.Append(name);
-                    sb.Append("*/");
-                }
-                switch (type)
-                    {
-                        case PropertyType.Float:
-                            string constantValue;
-                            // Special Handling for ints 
-                            if (lastDeclarationType == "int")
-                                constantValue = value.x.ToString("F0", CultureInfo.InvariantCulture);
-                            else
-                                constantValue = value.x.ToString("0.0####################", CultureInfo.InvariantCulture);
-
-                            // Add comment with property name, for easier debug
-                            sb.Append(constantValue);
-                            break;
-                        case PropertyType.Vector:
-                            sb.Append("float4(");
-                            sb.Append(value.x.ToString(CultureInfo.InvariantCulture));
-                            sb.Append(",");
-                            sb.Append(value.y.ToString(CultureInfo.InvariantCulture));
-                            sb.Append(",");
-                            sb.Append(value.z.ToString(CultureInfo.InvariantCulture));
-                            sb.Append(",");
-                            sb.Append(value.w.ToString(CultureInfo.InvariantCulture));
-                            sb.Append(")");
-                            break;
-                    }
-            }
         }
 
         public class Macro
@@ -387,223 +302,7 @@ namespace Thry.ThryEditor
             public string newName;
         }
 
-        private struct ApplyStruct
-        {
-            public Material material;
-            public Shader shader;
-            public string newShaderName;
-            public List<RenamingProperty> animatedPropsToRename;
-            public List<RenamingProperty> animatedPropsToDuplicate;
-            public string animPropertySuffix;
-            public bool shared;
-            public List<string> stripTextures;
-        }
-
-        private static string GetColorMaskString(int colorMask)
-        {
-            if (colorMask == 0) return "0";
-            string mask = "";
-            if ((colorMask & 8) != 0) mask += "R";
-            if ((colorMask & 4) != 0) mask += "G";
-            if ((colorMask & 2) != 0) mask += "B";
-            if ((colorMask & 1) != 0) mask += "A";
-            return mask;
-        }
-
-        private static Dictionary<Material, ApplyStruct> s_applyStructsLater = new Dictionary<Material, ApplyStruct>();
-
-#region Public API
-        /// <summary>
-        /// The type of progress bar to show when locking/unlocking materials
-        /// </summary>
-        public enum ProgressBar{
-            /// <summary>
-            /// No progress bar
-            /// </summary>
-            None, 
-            /// <summary>
-            /// Progress bar with cancel button
-            /// </summary>
-            Cancellable,
-            /// <summary>
-            /// Progress bar without cancel button
-            /// </summary>
-            Uncancellable
-        }
-        
-        /// <summary>
-        /// Locks all given materials
-        /// </summary>
-        /// <param name="materials">List of materials to lock</param>
-        /// <param name="progressBarType">What type of progress bar to show</param>
-        /// <returns></returns>
-        [PublicAPI]
-        public static bool LockMaterials(IEnumerable<Material> materials, ProgressBar progressBarType = ProgressBar.None)
-        {
-            return SetLockedForAllMaterialsInternal(materials, 1, progressBarType != ProgressBar.None, false, progressBarType == ProgressBar.Cancellable);
-        }
-
-        /// <summary>
-        /// Unlocks all given materials
-        /// </summary>
-        /// <param name="materials">List of materials to unlock</param>
-        /// <param name="progressBarType">What type of progress bar to show</param>
-        /// <returns></returns>
-        [PublicAPI]
-        public static bool UnlockMaterials(IEnumerable<Material> materials, ProgressBar progressBarType = ProgressBar.None)
-        {
-            return SetLockedForAllMaterialsInternal(materials, 0, progressBarType != ProgressBar.None, false, progressBarType == ProgressBar.Cancellable);
-        }
-
-#endregion
-#region MenuItems
-        // ifex indenting
-        [MenuItem("Assets/Thry/Shaders/Ifex Indenting", false, 305)]
-        static void IfExIndenting()
-        {
-            Shader s = Selection.objects[0] as Shader;
-            if (s == null) return;
-            string path = AssetDatabase.GetAssetPath(s);
-            if(string.IsNullOrEmpty(path)) return;
-            // Load the shader file
-            string[] lines = File.ReadAllLines(path);
-            int indent = 0;
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i].Trim();
-                if (line.Contains("//endex")) indent = Mathf.Max(0,indent - 1);
-                lines[i] = new string(' ', indent * 4) + line;
-                if (line.StartsWith("//ifex")) indent++;
-            }
-            GUIUtility.systemCopyBuffer = string.Join("\n", lines);
-        }
-
-        [MenuItem("Assets/Thry/Shaders/Ifex Indenting", true)]
-        static bool IfExIndentingValidator()
-        {
-            return Selection.objects.Length == 1 && Selection.objects[0] is Shader;
-        }
-
-        //---GameObject + Children Locking
-
-        [MenuItem("GameObject/Thry/Materials/Unlock All", false,0)]
-        static void UnlockAllChildren()
-        {
-            SetLockForAllChildrenInternal(Selection.gameObjects, 0, true);
-        }
-
-        [MenuItem("GameObject/Thry/Materials/Lock All", false,0)]
-        static void LockAllChildren()
-        {
-            SetLockForAllChildrenInternal(Selection.gameObjects, 1, true);
-        }
-
-        //---Asset Unlocking
-
-        [MenuItem("Assets/Thry/Materials/Unlock All", false, 303)]
-        static void UnlockAllMaterials()
-        {
-            SetLockedForAllMaterialsInternal(GetSelectedLockableMaterials(), 0, true);
-        }
-
-        [MenuItem("Assets/Thry/Materials/Unlock All", true)]
-        static bool UnlockAllMaterialsValidator()
-        {
-            return AreSelectedObjectsMaterials();
-        }
-
-        //---Asset Locking
-
-        [MenuItem("Assets/Thry/Materials/Lock All", false, 303)]
-        static void LockAllMaterials()
-        {
-            SetLockedForAllMaterialsInternal(GetSelectedLockableMaterials(), 1, true);
-        }
-
-        [MenuItem("Assets/Thry/Materials/Lock All", true)]
-        static bool LockAllMaterialsValidator()
-        {
-            return AreSelectedObjectsMaterials();
-        }
-
-        //This does not work for folders on the left side of the project explorer, because they are not exposed to Selection
-        internal static IEnumerable<string> GetSelectedFolders()
-        {
-            return Selection.objects.Select(o => AssetDatabase.GetAssetPath(o)).Where(p => Directory.Exists(p));
-        }
-
-        internal static List<Material> FindMaterials(string folderPath, bool recursive = true)
-        {
-            List<Material> materials = new List<Material>();
-            foreach (string f in Directory.GetFiles(folderPath))
-            {
-                if (AssetDatabase.GetMainAssetTypeAtPath(f) != typeof(Material)) continue;
-
-                materials.Add(AssetDatabase.LoadAssetAtPath<Material>(f));
-            }
-
-            if (!recursive) return materials;
-
-            foreach (string f in Directory.GetDirectories(folderPath)) materials.AddRange(FindMaterials(f, true));
-
-            return materials;
-        }
-
-        internal static List<Material> FindMaterials(IEnumerable<string> folders, bool recursive = true)
-        {
-            List<Material> materials = new List<Material>();
-
-            foreach (string f in folders) materials.AddRange(FindMaterials(f, recursive));
-
-            return materials;
-        }
-
-        //----Folder Lock
-
-        [MenuItem("Assets/Thry/Materials/Lock Folder", false, 303)]
-        static void LockFolder()
-        {
-            SetLockedForAllMaterialsInternal(FindMaterials(GetSelectedFolders()), 1, true);
-        }
-
-        [MenuItem("Assets/Thry/Materials/Lock Folder", true)]
-        static bool LockFolderValidator()
-        {
-            return GetSelectedFolders().Any();
-        }
-
-        //-----Folder Unlock
-        [MenuItem("Assets/Thry/Materials/Unlock Folder", false, 303)]
-        static void UnLockFolder()
-        {
-            SetLockedForAllMaterialsInternal(FindMaterials(GetSelectedFolders()), 0, true);
-        }
-
-        [MenuItem("Assets/Thry/Materials/Unlock Folder", true)]
-        static bool UnLockFolderValidator()
-        {
-            return GetSelectedFolders().Any();
-        }
-
-        //----Folder Unlock
-
-        static bool AreSelectedObjectsMaterials()
-        {
-            if (Selection.assetGUIDs != null && Selection.assetGUIDs.Length > 0)
-            {
-                return Selection.assetGUIDs.All(g => AssetDatabase.GetMainAssetTypeAtPath(AssetDatabase.GUIDToAssetPath(g)) == typeof(Material));
-            }
-            return false;
-        }
-
-        static IEnumerable<Material> GetSelectedLockableMaterials()
-        {
-            return Selection.assetGUIDs.Select(g => AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g))).Where(m => m != null && IsShaderUsingThryOptimizer(m.shader));
-        }
-#endregion
-
-#region Animiated Tagging
-        public static void CopyAnimatedTag(MaterialProperty source, Material[] targets)
+        public static void CopyAnimatedTagToMaterials(Material[] targets, MaterialProperty source)
         {
             string val = (source.targets[0] as Material).GetTag(source.name + AnimatedTagSuffix, false, "");
             foreach (Material m in targets)
@@ -612,7 +311,7 @@ namespace Thry.ThryEditor
             }
         }
 
-        public static void CopyAnimatedTag(Material source, MaterialProperty target)
+        public static void CopyAnimatedTagFromMaterial(Material source, MaterialProperty target)
         {
             string val = source.GetTag(target.name + AnimatedTagSuffix, false, "");
             foreach (Material m in target.targets)
@@ -621,7 +320,7 @@ namespace Thry.ThryEditor
             }
         }
 
-        public static void CopyAnimatedTag(MaterialProperty source, MaterialProperty target)
+        public static void CopyAnimatedTagFromProperty(MaterialProperty source, MaterialProperty target)
         {
             string val = (source.targets[0] as Material).GetTag(source.name + AnimatedTagSuffix, false, "");
             foreach (Material m in target.targets)
@@ -672,31 +371,7 @@ namespace Thry.ThryEditor
             }
             return cleaned;
         }
-        #endregion
 
-        #region Shader Property Helpers
-
-        public static RenderPipeline GetActiveRenderPipeline()
-        {
-            var pipelineAsset = GraphicsSettings.defaultRenderPipeline;
-            if (pipelineAsset != null)
-            {
-                if (pipelineAsset.GetType().Name == "UniversalRenderPipelineAsset")
-                {
-                    // URP
-                    return RenderPipeline.URP;
-                }
-                else
-                {
-                    return RenderPipeline.Other;
-                }
-            }
-            else
-            {
-                // Built-in pipeline
-                return RenderPipeline.BuiltIn;
-            }
-        }
 
         public static string GetRenamedPropertySuffix(Material m)
         {
@@ -725,348 +400,19 @@ namespace Thry.ThryEditor
 
         public static bool IsPropertyExcemptFromLocking(MaterialProperty prop)
         {
-            if(prop == null) return false;
             // if not a texture, but has non-modifiable texture data flag, is used as indicator to prevent locking
-            return prop.displayName.EndsWith(ExemptFromLockingSuffix, StringComparison.Ordinal) 
-                || (prop.propertyType != ShaderPropertyType.Texture && prop.propertyFlags.HasFlag(ShaderPropertyFlags.NonModifiableTextureData))
-                || GetAttributes(prop).Contains("DoNotLock");
+            return prop.displayName.EndsWith(ExemptFromLockingSuffix, StringComparison.Ordinal) || (prop.propertyType != UnityEngine.Rendering.ShaderPropertyType.Texture && prop.propertyFlags.HasFlag(UnityEngine.Rendering.ShaderPropertyFlags.NonModifiableTextureData));
         }
 
-        public static bool IsPropertyExcemptFromLocking(ShaderPart part)
-        {
-            if(part.MaterialProperty == null) return false;
-            return part.HasAttribute("DoNotLock")
-            || (part.MaterialProperty.propertyType != ShaderPropertyType.Texture && part.MaterialProperty.propertyFlags.HasFlag(ShaderPropertyFlags.NonModifiableTextureData))
-            || part.MaterialProperty.displayName.EndsWith(ExemptFromLockingSuffix, StringComparison.Ordinal);
-        }
-
-        private static string[] GetAttributes(MaterialProperty prop)
-        {
-            Shader s = (prop.targets[0] as Material).shader;
-            if(s == null) return new string[0];
-            int index = s.FindPropertyIndex(prop.name);
-            if(index < 0) return new string[0];
-            return s.GetPropertyAttributes(index);
-        }
-
-        private static bool CopyProperty(Material material, MaterialProperty source, string targetName)
-        {
-            switch (source.propertyType)
-            {
-                case ShaderPropertyType.Color:
-                    material.SetColor(targetName, source.colorValue);
-                    break;
-                case ShaderPropertyType.Vector:
-                    material.SetVector(targetName, source.vectorValue);
-                    break;
-                case ShaderPropertyType.Float:
-                case ShaderPropertyType.Range:
-                    material.SetFloat(targetName, source.floatValue);
-                    break;
-#if UNITY_2022_1_OR_NEWER
-                case ShaderPropertyType.Int:
-                    material.SetInt(targetName, source.intValue);
-                    break;
-#endif
-                case ShaderPropertyType.Texture:
-                    material.SetTexture(targetName, source.textureValue);
-                    material.SetTextureScale(targetName, new Vector2(source.textureScaleAndOffset.x, source.textureScaleAndOffset.y));
-                    material.SetTextureOffset(targetName, new Vector2(source.textureScaleAndOffset.z, source.textureScaleAndOffset.w));
-                    break;
-                default:
-                    return false;
-            }
-
-            return true;
-        }
-#endregion
-#region Lock Managing
-        public static void ToggleLockFromPropertyButton(MaterialProperty prop)
-        {
-            SetLockedForAllMaterialsInternal(prop.targets.Select(t => t as Material), prop.GetNumber() == 1 ? 0 : 1, true, false, false, prop);
-        }
-
-        [Obsolete("Use ShaderOptimizer.LockMaterials or ShaderOptimizer.UnlockMaterials instead")]
-        public static bool SetLockForAllChildren(GameObject[] objects, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true)
-        {
-            return SetLockForAllChildrenInternal(objects, lockState, showProgressbar, showDialog, allowCancel);
-        }
-
-        [Obsolete("Use ShaderOptimizer.LockMaterials or ShaderOptimizer.UnlockMaterials instead")]
-        public static bool SetLockedForAllMaterials(IEnumerable<Material> materials, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true, MaterialProperty shaderOptimizerProp = null)
-        {
-            return SetLockedForAllMaterialsInternal(materials, lockState, showProgressbar, showDialog, allowCancel, shaderOptimizerProp);
-        }
-
-        private static bool SetLockForAllChildrenInternal(GameObject[] objects, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true)
-        {
-            IEnumerable<Material> materials = objects.Select(o => o.GetComponentsInChildren<Renderer>(true)).SelectMany(rA => rA.SelectMany(r => r.sharedMaterials));
-            return SetLockedForAllMaterialsInternal(materials, lockState, showProgressbar, showDialog);
-        }
-
-        private static Dictionary<string, List<Material>> s_shaderPropertyCombinations = new Dictionary<string, List<Material>>();
-        private static bool SetLockedForAllMaterialsInternal(IEnumerable<Material> materials, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true, MaterialProperty shaderOptimizerProp = null)
-        {
-            Helper.RegisterEditorUse();
-            //first the shaders are created. compiling is suppressed with start asset editing
-            AssetDatabase.StartAssetEditing();
-
-            bool isLocking = lockState == 1;
-
-            //Get cleaned materia list
-            // The GetPropertyDefaultFloatValue is changed from 0 to 1 when the shader is locked in
-            IEnumerable<Material> materialsToChangeLock = materials.Where(m => m != null
-                && !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m))
-                && !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m.shader))
-                && IsShaderUsingThryOptimizer(m.shader)
-                &&  (   m.shader.name.StartsWith("Hidden/Locked/")
-                    || (m.shader.name.StartsWith("Hidden/") && m.GetTag("OriginalShader",false,"") != "" 
-                        && m.shader.GetPropertyDefaultFloatValue(m.shader.FindPropertyIndex(GetOptimizerPropertyName(m.shader))) == 1)
-                    ) != isLocking)
-                .Distinct();
-
-            // Make sure keywords are set correctly for materials to be locked. If unlocking, do this after the shaders are unlocked
-            if(isLocking && Config.Instance.fixKeywordsWhenLocking)
-                ShaderEditor.FixKeywords(materialsToChangeLock);
-
-            float i = 0;
-            float length = materialsToChangeLock.Count();
-
-            //show popup dialog if defined
-            if (showDialog && length > 0)
-            {
-                if(EditorUtility.DisplayDialog("Locking Materials", EditorLocale.editor.Get("auto_lock_dialog").ReplaceVariables(length), "More information","OK"))
-                {
-                    Application.OpenURL("https://www.youtube.com/watch?v=asWeDJb5LAo");
-                }
-                PersistentData.Set("ShowLockInDialog", false);
-            }
-
-            Object[] prevTargets = Selection.objects;
-            if (ShaderEditor.Active != null)
-            {
-                Selection.objects = new Object[0];
-            }
-
-            //Create shader assets
-            foreach (Material m in materialsToChangeLock.ToList()) //have to call ToList() here otherwise the Unlock Shader button in the ShaderGUI doesn't work
-            {
-                //do progress bar
-                if (showProgressbar)
-                {
-                    if (allowCancel)
-                    {
-                        if (EditorUtility.DisplayCancelableProgressBar(isLocking ? "Locking Materials" : "Unlocking Materials", m.name, i / length)) break;
-                    }
-                    else
-                    {
-                        EditorUtility.DisplayProgressBar(isLocking ? "Locking Materials" : "Unlocking Materials", m.name, i / length);
-                    }
-                }
-                //create the assets
-                try
-                {
-                    if (isLocking)
-                    {
-                        string hash = MaterialToShaderPropertyHash(m);
-                        // Check that shader has already been created for this hash and still exists
-                        // Or that the shader is being created for this has during this session
-                        Material reference = null;
-                        if (s_shaderPropertyCombinations.ContainsKey(hash))
-                        {
-                            s_shaderPropertyCombinations[hash].RemoveAll(m2 => m2 == null);
-                            reference = s_shaderPropertyCombinations[hash].FirstOrDefault(m2 => m2 != m && (materialsToChangeLock.Contains(m2) || Shader.Find(s_applyStructsLater[m2].newShaderName) != null));
-                        }
-                        if (reference != null)
-                        {
-                            // Reuse existing shader and struct
-                            ApplyStruct applyStruct = s_applyStructsLater[reference];
-                            applyStruct.material = m;
-                            s_applyStructsLater[m] = applyStruct;
-                            //Disable shader keywords
-                            foreach (string keyword in m.shaderKeywords)
-                                if (m.IsKeywordEnabled(keyword)) m.DisableKeyword(keyword);
-
-                        }
-                        // Create new locked shader
-                        else
-                        {
-                            Lock(m,
-                                MaterialEditor.GetMaterialProperties(new Object[] { m }),
-                                applyShaderLater: true);
-                            s_shaderPropertyCombinations[hash] = new List<Material>();
-                        }
-                        // Add material to list of materials with same shader property hash
-                        s_shaderPropertyCombinations[hash].Add(m);
-                        // Update TAG_ALL_MATERIALS_GUIDS_USING_THIS_LOCKED_SHADER of all materials with same shader property hash
-                        string tag = string.Join(",", s_shaderPropertyCombinations[hash].Select(m2 => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(m2))));
-                        foreach (Material m2 in s_shaderPropertyCombinations[hash])
-                            m2.SetOverrideTag(TAG_ALL_MATERIALS_GUIDS_USING_THIS_LOCKED_SHADER, tag);
-                    }
-                    else if (!isLocking)
-                    {
-                        Unlock(m, shaderOptimizerProp);
-                    }
-                }
-                catch (Exception e)
-                {
-                    Debug.Log(e);
-                    string position = e.StackTrace.Split('\n').FirstOrDefault(l => l.Contains("ThryEditor"));
-                    if (position != null)
-                    {
-                        position = position.Split(new string[] { "ThryEditor" }, StringSplitOptions.None).LastOrDefault();
-                        Debug.LogError("Could not un-/lock material " + m.name + " | Error thrown at " + position + "\n" + e.StackTrace);
-                    }
-                    else
-                    {
-                        Debug.LogError("Could not un-/lock material " + m.name + "\n" + e.StackTrace);
-                    }
-                    EditorUtility.ClearProgressBar();
-                    AssetDatabase.StopAssetEditing();
-                    return false;
-                }
-                i++;
-            }
-
-            EditorUtility.ClearProgressBar();
-
-            // In case any keywords were messed up in the material following unlock, fix them now
-            if (!isLocking && Config.Instance.fixKeywordsWhenLocking)
-                ShaderEditor.FixKeywords(materialsToChangeLock);
-
-            AssetDatabase.StopAssetEditing();
-            //unity now compiles all the shaders
-
-            //now all new shaders are applied. this has to happen after unity compiled the shaders
-            if (isLocking)
-            {
-                AssetDatabase.Refresh();
-                //Apply new shaders
-                foreach (Material m in materialsToChangeLock)
-                {
-                    if (ShaderOptimizer.LockApplyShader(m))
-                    {
-                        m.SetNumber(GetOptimizerPropertyName(m.shader), 1);
-                    }
-                }
-            }
-            AssetDatabase.Refresh();
-
-            // Make sure things get saved after a cycle. This prevents thumbnails from getting stuck
-            if(Config.Instance.saveAfterLockUnlock)
-                EditorApplication.update += QueueSaveAfterLockUnlock;
-
-            if (ShaderEditor.Active != null)
-            {
-                Selection.objects = prevTargets;
-            }
-                
-            return true;
-        }
-
-        // This is just a wrapper so that it waits a cycle before saving
-        static void QueueSaveAfterLockUnlock()
-        {
-            EditorApplication.update -= QueueSaveAfterLockUnlock;
-            EditorApplication.update += SaveAfterLockUnlock;
-        }
-
-        static void SaveAfterLockUnlock()
-        {
-            if (ShaderUtil.anythingCompiling)
-                return;
-
-            EditorApplication.update -= SaveAfterLockUnlock;
-            AssetDatabase.SaveAssets();
-        }
-
-        static string MaterialToShaderPropertyHash(Material m)
-        {
-            StringBuilder stringBuilder = new StringBuilder(m.shader.name);
-
-            foreach (MaterialProperty prop in
-                     MaterialEditor.GetMaterialProperties(new Object[] { m }))
-            {
-                string propName = prop.name;
-
-                if (PropertiesToSkipInMaterialEquallityComparission.Contains(propName)) continue;
-
-                string isAnimated = GetAnimatedTag(m, propName);
-
-                if (isAnimated == "1")
-                {
-                    stringBuilder.Append(isAnimated);
-                }
-                else if(isAnimated == "2")
-                {
-                    //This is because materials with renaming should not share shaders
-                    stringBuilder.Append(m.name);
-                }
-                else
-                {
-
-                    switch (prop.propertyType)
-                    {
-                        case ShaderPropertyType.Color:
-                            stringBuilder.Append(m.GetColor(propName).ToString());
-                            break;
-                        case ShaderPropertyType.Vector:
-                            stringBuilder.Append(m.GetVector(propName).ToString());
-                            break;
-                        case ShaderPropertyType.Range:
-                        case ShaderPropertyType.Float:
-                            stringBuilder.Append(m.GetFloat(propName)
-                                .ToString(CultureInfo.InvariantCulture));
-                            break;
-#if UNITY_2022_1_OR_NEWER
-                        case ShaderPropertyType.Int:
-                            stringBuilder.Append(m.GetInteger(propName)
-                                .ToString(CultureInfo.InvariantCulture));
-                            break;
-#endif
-                        case ShaderPropertyType.Texture:
-                            Texture t = m.GetTexture(propName);
-                            Vector4 texelSize = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-                            if (t != null)
-                                texelSize = new Vector4(1.0f / t.width, 1.0f / t.height, t.width, t.height);
-
-                            stringBuilder.Append(m.GetTextureOffset(propName).ToString());
-                            stringBuilder.Append(m.GetTextureScale(propName).ToString());
-                            break;
-                    }
-                }
-            }
-
-            // https://forum.unity.com/threads/hash-function-for-game.452779/
-            byte[] bytes = Encoding.ASCII.GetBytes(stringBuilder.ToString());
-            using (var sha = new MD5CryptoServiceProvider())
-                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLower();
-        }
-#endregion
-#region Locking
         private static bool Lock(Material material, MaterialProperty[] props, bool applyShaderLater = false)
         {
-            RenderPipeline pipeline = GetActiveRenderPipeline();
-            if (pipeline == RenderPipeline.Other)
-            {
-                Debug.LogError("Locking is not supported for this render pipeline. Please use the built-in pipeline or URP.");
-                return false;
-            }
             // File filepaths and names
             Shader shader = material.shader;
             string shaderFilePath = AssetDatabase.GetAssetPath(shader);
             string materialFilePath = AssetDatabase.GetAssetPath(material);
             string materialFolder = Path.GetDirectoryName(materialFilePath);
-            bool isSubAsset = AssetDatabase.IsSubAsset(material);
-            if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(material, out string guid, out long fileId))
-            {
-                guid = AssetDatabase.AssetPathToGUID(materialFilePath);
-                isSubAsset = false;
-            }
-
-
-
-            string newShaderName = "Hidden/Locked/" + shader.name + "/" + guid + (isSubAsset ? $"_{fileId}" : "");
+            string guid = AssetDatabase.AssetPathToGUID(materialFilePath);
+            string newShaderName = "Hidden/Locked/" + shader.name + "/" + guid;
             string shaderOptimizerButtonDrawerName = $"[{nameof(ThryShaderOptimizerLockButtonDrawer).Replace("Drawer", "")}]";
             //string newShaderDirectory = materialFolder + "/OptimizedShaders/" + material.name + "-" + smallguid + "/";
             // unity path stuff (https://docs.unity3d.com/Manual/SpecialFolders.html)
@@ -1081,7 +427,7 @@ namespace Thry.ThryEditor
             // if directory already exists swap to using the guid
             if (Directory.Exists(newShaderDirectory))
             {
-                newShaderDirectory = materialFolder + "/OptimizedShaders/" + guid + (isSubAsset ? $"_{fileId}" : "") + "/";
+                newShaderDirectory = materialFolder + "/OptimizedShaders/" + guid + "/";
             }
             
 
@@ -1103,14 +449,13 @@ namespace Thry.ThryEditor
             List<PropertyData> constantProps = new List<PropertyData>();
             List<RenamingProperty> animatedPropsToRename = new List<RenamingProperty>();
             List<RenamingProperty> animatedPropsToDuplicate = new List<RenamingProperty>();
-            List<string> stripTextures = new List<string>();
             foreach (MaterialProperty prop in props)
             {
                 if (prop == null) continue;
                 // Every property gets turned into a preprocessor variable
                 switch (prop.propertyType)
                 {
-                    case ShaderPropertyType.Texture:
+                    case UnityEngine.Rendering.ShaderPropertyType.Texture:
                         if (prop.textureValue != null)
                         {
                             defines.Add(($"PROP{prop.name.ToUpperInvariant()}", ""));
@@ -1152,7 +497,7 @@ namespace Thry.ThryEditor
                 }
 
                 string animateTag = material.GetTag(prop.name + AnimatedTagSuffix, false, "");
-                if (!string.IsNullOrEmpty(animateTag))
+                if(string.IsNullOrEmpty(animateTag) == false)
                 {
                     // check if we're renaming the property as well
                     if (animateTag == "2")
@@ -1163,7 +508,7 @@ namespace Thry.ThryEditor
                                 animatedPropsToDuplicate.Add(new RenamingProperty(prop, prop.name, prop.name + "_" + animPropertySuffix));
                             else
                                 animatedPropsToRename.Add(new RenamingProperty(prop, prop.name, prop.name + "_" + animPropertySuffix));
-                            if (prop.propertyType == ShaderPropertyType.Texture)
+                            if (prop.propertyType == UnityEngine.Rendering.ShaderPropertyType.Texture)
                             {
                                 animatedPropsToRename.Add(new RenamingProperty(prop, prop.name + "_ST", prop.name + "_" + animPropertySuffix + "_ST"));
                                 animatedPropsToRename.Add(new RenamingProperty(prop, prop.name + "_TexelSize", prop.name + "_" + animPropertySuffix + "_TexelSize"));
@@ -1179,31 +524,31 @@ namespace Thry.ThryEditor
                 PropertyData propData;
                 switch(prop.propertyType)
                 {
-                    case ShaderPropertyType.Color:
+                    case UnityEngine.Rendering.ShaderPropertyType.Color:
                         propData = new PropertyData();
                         propData.type = PropertyType.Vector;
                         propData.name = prop.name;
-                        if ((prop.propertyFlags & ShaderPropertyFlags.HDR) != 0)
+                        if ((prop.propertyFlags & UnityEngine.Rendering.ShaderPropertyFlags.HDR) != 0)
                         {
-                            if ((prop.propertyFlags & ShaderPropertyFlags.Gamma) != 0)
+                            if ((prop.propertyFlags & UnityEngine.Rendering.ShaderPropertyFlags.Gamma) != 0)
                                 propData.value = prop.colorValue.linear;
                             else propData.value = prop.colorValue;
                         }
-                        else if ((prop.propertyFlags & ShaderPropertyFlags.Gamma) != 0)
+                        else if ((prop.propertyFlags & UnityEngine.Rendering.ShaderPropertyFlags.Gamma) != 0)
                             propData.value = prop.colorValue;
                         else propData.value = prop.colorValue.linear;
                         if (PlayerSettings.colorSpace == ColorSpace.Gamma) propData.value = prop.colorValue;
                         constantProps.Add(propData);
                         break;
-                    case ShaderPropertyType.Vector:
+                    case UnityEngine.Rendering.ShaderPropertyType.Vector:
                         propData = new PropertyData();
                         propData.type = PropertyType.Vector;
                         propData.name = prop.name;
                         propData.value = prop.vectorValue;
                         constantProps.Add(propData);
                         break;
-                    case ShaderPropertyType.Float:
-                    case ShaderPropertyType.Range:
+                    case UnityEngine.Rendering.ShaderPropertyType.Float:
+                    case UnityEngine.Rendering.ShaderPropertyType.Range:
                         propData = new PropertyData();
                         propData.type = PropertyType.Float;
                         propData.name = prop.name;
@@ -1211,7 +556,7 @@ namespace Thry.ThryEditor
                         constantProps.Add(propData);
                         break;
 #if UNITY_2022_1_OR_NEWER
-                    case ShaderPropertyType.Int:
+                    case UnityEngine.Rendering.ShaderPropertyType.Int:
                         propData = new PropertyData();
                         propData.type = PropertyType.Float;
                         propData.name = prop.name;
@@ -1219,7 +564,7 @@ namespace Thry.ThryEditor
                         constantProps.Add(propData);
                         break;
 #endif
-                    case ShaderPropertyType.Texture:
+                    case UnityEngine.Rendering.ShaderPropertyType.Texture:
                         PropertyData ST = new PropertyData();
                         ST.type = PropertyType.Vector;
                         ST.name = prop.name + "_ST";
@@ -1255,7 +600,7 @@ namespace Thry.ThryEditor
             // Parse shader and cginc files, also gets preprocessor macros
             List<ParsedShaderFile> shaderFiles = new List<ParsedShaderFile>();
             List<Macro> macros = new List<Macro>();
-            if (!ParseShaderFilesRecursive(shaderFiles, newShaderDirectory, shaderFilePath, macros, material, stripTextures))
+            if (!ParseShaderFilesRecursive(shaderFiles, newShaderDirectory, shaderFilePath, macros, material))
                 return false;
 
             // Remove all defines where name if not in shader files
@@ -1315,8 +660,7 @@ namespace Thry.ThryEditor
                 
 
                 // Shader file specific stuff
-                if (psf.filePath.EndsWith(".shader", StringComparison.Ordinal) ||
-                    psf.filePath.EndsWith(".hlsl", StringComparison.Ordinal))
+                if (psf.filePath.EndsWith(".shader", StringComparison.Ordinal))
                 {
                     for (int i=0; i<psf.lines.Length;i++)
                     {
@@ -1326,8 +670,7 @@ namespace Thry.ThryEditor
                         {
                             string originalSgaderName = psf.lines[i].Split('\"')[1];
                             psf.lines[i] = psf.lines[i].Replace(originalSgaderName, newShaderName);
-                        }
-                        else if (trimmedLine.StartsWith(shaderOptimizerButtonDrawerName))
+                        }else if (trimmedLine.StartsWith(shaderOptimizerButtonDrawerName))
                         {
                             psf.lines[i] = Regex.Replace(psf.lines[i], @"\d+\w*$", "1");
                         }
@@ -1361,23 +704,23 @@ namespace Thry.ThryEditor
                             psf.lines[i] = "GrabPass { \"" + gpr.newName + "\" }";
                             grabPassVariables.Add(gpr);
                         }
-                        else if (trimmedLine.StartsWith(PreprocessStructureStart[(int) pipeline], StringComparison.Ordinal))
+                        else if (trimmedLine.StartsWith("CGINCLUDE", StringComparison.Ordinal))
                         {
-                            for (int j = i + 1; j < psf.lines.Length; j++)
-                                if (psf.lines[j].TrimStart().StartsWith(PreprocessStructureEnd[(int) pipeline], StringComparison.Ordinal))
+                            for (int j=i+1; j<psf.lines.Length;j++)
+                                if (psf.lines[j].TrimStart().StartsWith("ENDCG", StringComparison.Ordinal))
                                 {
-                                    ReplaceShaderValues(material, psf.lines, i + 1, j, props, constantPropsDictionary, macrosArray, grabPassVariables.ToArray());
+                                    ReplaceShaderValues(material, psf.lines, i+1, j, props, constantPropsDictionary, macrosArray, grabPassVariables.ToArray());
                                     break;
                                 }
                         }
-                        else if (trimmedLine.StartsWith(CodeBlockStart[(int) pipeline], StringComparison.Ordinal))
+                        else if (trimmedLine.StartsWith("CGPROGRAM", StringComparison.Ordinal))
                         {
-                            if (commentKeywords == 0)
+                            if(commentKeywords == 0)
                                 psf.lines[i] += optimizerDefines;
-                            for (int j = i + 1; j < psf.lines.Length; j++)
-                                if (psf.lines[j].TrimStart().StartsWith(CodeBlockEnd[(int) pipeline], StringComparison.Ordinal))
+                            for (int j=i+1; j<psf.lines.Length;j++)
+                                if (psf.lines[j].TrimStart().StartsWith("ENDCG", StringComparison.Ordinal))
                                 {
-                                    ReplaceShaderValues(material, psf.lines, i + 1, j, props, constantPropsDictionary, macrosArray, grabPassVariables.ToArray());
+                                    ReplaceShaderValues(material, psf.lines, i+1, j, props, constantPropsDictionary, macrosArray, grabPassVariables.ToArray());
                                     break;
                                 }
                         }
@@ -1398,51 +741,25 @@ namespace Thry.ThryEditor
                                 if (disabledLightModes.Contains(lightModeName))
                                 {
                                     // Loop up from psf.lines[i] until standalone "Pass" line is found, delete it
-                                    int j = i - 1;
-                                    for (; j >= 0; j--)
+                                    int j=i-1;
+                                    for (;j>=0;j--)
                                         if (psf.lines[j].Replace(" ", "").Replace("\t", "") == "Pass")
                                             break;
                                     // then delete each line until a standalone ENDCG line is found
-                                    for (; j < psf.lines.Length; j++)
+                                    for (;j<psf.lines.Length;j++)
                                     {
                                         if (psf.lines[j].Replace(" ", "").Replace("\t", "") == "ENDCG")
                                             break;
                                         psf.lines[j] = "";
                                     }
                                     // then delete each line until a standalone '}' line is found
-                                    for (; j < psf.lines.Length; j++)
+                                    for (;j<psf.lines.Length;j++)
                                     {
                                         string temp = psf.lines[j];
                                         psf.lines[j] = "";
                                         if (temp.Replace(" ", "").Replace("\t", "") == "}")
                                             break;
                                     }
-                                }
-                            }
-                        }
-                        else if (trimmedLine.StartsWith("ColorMask", StringComparison.Ordinal))
-                        {
-                            Match regMatch = Regex.Match(trimmedLine, @"\[\w+\]");
-                            if(regMatch.Success)
-                            {
-                                string trimmedRegMatch = regMatch.Value.Trim('[', ']');
-                                PropertyData colorMaskProp = constantProps.FirstOrDefault(x => x.name == trimmedRegMatch);
-                                if (colorMaskProp != null)
-                                {
-                                    psf.lines[i] = psf.lines[i].Replace(regMatch.Value, GetColorMaskString((int)colorMaskProp.value.x));
-                                }
-                            }
-                        }
-                        else if (trimmedLine.StartsWith("Cull", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Match regMatch = Regex.Match(trimmedLine, @"\[\w+\]");
-                            if(regMatch.Success)
-                            {
-                                string trimmedRegMatch = regMatch.Value.Trim('[', ']');
-                                PropertyData cullModeProp = constantProps.FirstOrDefault(x => x.name == trimmedRegMatch);
-                                if (cullModeProp != null)
-                                {
-                                    psf.lines[i] = psf.lines[i].Replace(regMatch.Value, ((UnityEngine.Rendering.CullMode)cullModeProp.value.x).ToString());
                                 }
                             }
                         }
@@ -1484,25 +801,39 @@ namespace Thry.ThryEditor
             ApplyStruct applyStruct = new ApplyStruct();
             applyStruct.material = material;
             applyStruct.shader = shader;
+            applyStruct.smallguid = guid;
             applyStruct.newShaderName = newShaderName;
             applyStruct.animatedPropsToRename = animatedPropsToRename;
             applyStruct.animatedPropsToDuplicate = animatedPropsToDuplicate;
             applyStruct.animPropertySuffix = animPropertySuffix;
-            applyStruct.stripTextures = stripTextures;
 
             if (applyShaderLater)
             {
                 //Debug.Log("Apply later: "+applyStructsLater.Count+ ", "+material.name);
-                s_applyStructsLater[material] = applyStruct;
+                applyStructsLater[material] = applyStruct;
                 return true;
             }
             return LockApplyShader(applyStruct);
         }
 
+        private static Dictionary<Material, ApplyStruct> applyStructsLater = new Dictionary<Material, ApplyStruct>();
+
+        private struct ApplyStruct
+        {
+            public Material material;
+            public Shader shader;
+            public string smallguid;
+            public string newShaderName;
+            public List<RenamingProperty> animatedPropsToRename;
+            public List<RenamingProperty> animatedPropsToDuplicate;
+            public string animPropertySuffix;
+            public bool shared;
+        }
+
         private static bool LockApplyShader(Material material)
         {
-            if (s_applyStructsLater.ContainsKey(material) == false) return false;
-            ApplyStruct applyStruct = s_applyStructsLater[material];
+            if (applyStructsLater.ContainsKey(material) == false) return false;
+            ApplyStruct applyStruct = applyStructsLater[material];
             if (applyStruct.shared)
             {
                 material.shader = applyStruct.material.shader;
@@ -1523,17 +854,22 @@ namespace Thry.ThryEditor
         public static void DetourApplyMaterialPropertyDrawers()
         {
         // Unity 2022 Crashes on apple silicon when detouring ApplyMaterialPropertyDrawers
+#if UNITY_EDITOR_WIN
             Helper.TryDetourFromTo(ApplyMaterialPropertyDrawersOriginalMethodInfo, ApplyMaterialPropertyDrawersPatchMethodInfo);
 #if UNITY_2022_1_OR_NEWER
             Helper.TryDetourFromTo(ApplyMaterialPropertyDrawersFromNativeOriginalMethodInfo, ApplyMaterialPropertyDrawersFromNativePatchMethodInfo);
+#endif
 #endif
         }
 
         public static void RestoreApplyMaterialPropertyDrawers()
         {
+            
+#if UNITY_EDITOR_WIN
             Helper.RestoreDetour(ApplyMaterialPropertyDrawersOriginalMethodInfo);
 #if UNITY_2022_1_OR_NEWER
             Helper.RestoreDetour(ApplyMaterialPropertyDrawersFromNativeOriginalMethodInfo);
+#endif
 #endif
         }
 
@@ -1558,31 +894,6 @@ namespace Thry.ThryEditor
             string renderType = material.GetTag("RenderType", false, "");
             int renderQueue = material.renderQueue;
 
-            // Strip removed textures
-            SerializedObject serializedObject = new SerializedObject(material);
-            SerializedProperty serializedTexProperties = serializedObject.FindProperty("m_SavedProperties.m_TexEnvs");
-            List<(string tag,string guid)> savedTextures = new List<(string,string)>();
-            for(int i=0;i<serializedTexProperties.arraySize;i++)
-            {
-                SerializedProperty prop = serializedTexProperties.GetArrayElementAtIndex(i);
-                string propName = prop.FindPropertyRelative("first").stringValue;
-                Object propTex = prop.FindPropertyRelative("second.m_Texture").objectReferenceValue;
-                bool doStrip = applyStruct.stripTextures.Contains(propName) && propTex != null;
-                if (doStrip || propTex == null)
-                {
-                    if(doStrip)
-                    {
-                        savedTextures.Add(("_stripped_tex_" + propName, AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(material.GetTexture(propName)))));
-                    }
-                    serializedTexProperties.DeleteArrayElementAtIndex(i);
-                    i -= 1;
-                }
-            }
-            serializedObject.ApplyModifiedPropertiesWithoutUndo();
-
-            foreach ((string tag, string guid) in savedTextures)
-                material.SetOverrideTag(tag, guid);
-
             // Actually switch the shader
             Shader newShader = Shader.Find(newShaderName);
             if (newShader == null)
@@ -1603,21 +914,101 @@ namespace Thry.ThryEditor
             foreach (string keyword in material.shaderKeywords)
                 if(material.IsKeywordEnabled(keyword)) material.DisableKeyword(keyword);
 
-            var propertiesToCopy = animatedPropsToRename.Union(animatedPropsToDuplicate);
-            foreach (var animProp in propertiesToCopy)
+            foreach (var animProp in animatedPropsToRename)
             {
-                if(!CopyProperty(material, animProp.Prop, $"{animProp.Prop.name}_{animPropertySuffix}"))
-                    throw new ArgumentOutOfRangeException(nameof(material), "This property type should not be renamed and can not be set.");
+                var newName = animProp.Prop.name + "_" + animPropertySuffix;
+                switch (animProp.Prop.propertyType)
+                {
+                    case UnityEngine.Rendering.ShaderPropertyType.Color:
+                        material.SetColor(newName, animProp.Prop.colorValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                        material.SetVector(newName, animProp.Prop.vectorValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Float:
+                        material.SetFloat(newName, animProp.Prop.floatValue);
+                        break;
+#if UNITY_2022_1_OR_NEWER
+                    case UnityEngine.Rendering.ShaderPropertyType.Int:
+                        material.SetInt(newName, animProp.Prop.intValue);
+                        break;
+#endif
+                    case UnityEngine.Rendering.ShaderPropertyType.Range:
+                        material.SetFloat(newName, animProp.Prop.floatValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Texture:
+                        material.SetTexture(newName, animProp.Prop.textureValue);
+                        material.SetTextureScale(newName, new Vector2(animProp.Prop.textureScaleAndOffset.x, animProp.Prop.textureScaleAndOffset.y));
+                        material.SetTextureOffset(newName, new Vector2(animProp.Prop.textureScaleAndOffset.z, animProp.Prop.textureScaleAndOffset.w));
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(material), "This property type should not be renamed and can not be set.");
+                }
             }
 
+            foreach (var animProp in animatedPropsToDuplicate)
+            {
+                var newName = animProp.Prop.name + "_" + animPropertySuffix;
+                switch (animProp.Prop.propertyType)
+                {
+                    case UnityEngine.Rendering.ShaderPropertyType.Color:
+                        material.SetColor(newName, animProp.Prop.colorValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                        material.SetVector(newName, animProp.Prop.vectorValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Float:
+                        material.SetFloat(newName, animProp.Prop.floatValue);
+                        break;
+#if UNITY_2022_1_OR_NEWER
+                    case UnityEngine.Rendering.ShaderPropertyType.Int:
+                        material.SetInt(newName, animProp.Prop.intValue);
+                        break;
+#endif
+                    case UnityEngine.Rendering.ShaderPropertyType.Range:
+                        material.SetFloat(newName, animProp.Prop.floatValue);
+                        break;
+                    case UnityEngine.Rendering.ShaderPropertyType.Texture:
+                        material.SetTexture(newName, animProp.Prop.textureValue);
+                        material.SetTextureScale(newName, new Vector2(animProp.Prop.textureScaleAndOffset.x, animProp.Prop.textureScaleAndOffset.y));
+                        material.SetTextureOffset(newName, new Vector2(animProp.Prop.textureScaleAndOffset.z, animProp.Prop.textureScaleAndOffset.w));
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(material), "This property type should not be renamed and can not be set.");
+                }
+            }
             return true;
+        }
+
+        /** <summary>Find longest common directoy</summary> */
+        public static int GetLongestCommonDirectoryLength(string[] s)
+        {
+            int k = s[0].Length;
+            for (int i = 1; i < s.Length; i++)
+            {
+                k = Math.Min(k, s[i].Length);
+                for (int j = 0; j < k; j++)
+                    if ( AreCharsInPathEqual(s[i][j] , s[0][j]) == false)
+                    {
+                        k = j;
+                        break;
+                    }
+            }
+            string p = s[0].Substring(0, k);
+            if (Directory.Exists(p)) return p.Length;
+            else return Path.GetDirectoryName(p).Length;
+        }
+
+        private static bool AreCharsInPathEqual(char c1, char c2)
+        {
+            return (c1 == c2) || ((c1 == '/' || c1 == '\\') && (c2 == '/' || c2 == '\\'));
         }
 
         // Preprocess each file for macros and includes
         // Save each file as string[], parse each macro with //KSOEvaluateMacro
         // Only editing done is replacing #include "X" filepaths where necessary
         // most of these args could be private static members of the class
-        private static bool ParseShaderFilesRecursive(List<ParsedShaderFile> filesParsed, string newTopLevelDirectory, string filePath, List<Macro> macros, Material material, List<string> stripTextures)
+        private static bool ParseShaderFilesRecursive(List<ParsedShaderFile> filesParsed, string newTopLevelDirectory, string filePath, List<Macro> macros, Material material)
         {
             // Infinite recursion check
             if (filesParsed.Exists(x => x.filePath == filePath)) return true;
@@ -1669,15 +1060,14 @@ namespace Thry.ThryEditor
             {
                 string lineParsed = fileLines[i].TrimStart();
 
-                if (lineParsed.StartsWith("//", StringComparison.Ordinal))
+                if(lineParsed.StartsWith("//", StringComparison.Ordinal))
                 {
-                    // Exclusion logic
-                    if (lineParsed.StartsWith("//ifex", StringComparison.Ordinal))
+                    //Exclusion logic
+                    if(lineParsed.StartsWith("//ifex", StringComparison.Ordinal))
                     {
-                        if (!doExclude) // if already excluding, only track depth
-                        {
+                        if(!doExclude){ // If already excluding, only track depth
                             var condition = DefineableCondition.Parse(lineParsed.Substring(6), material);
-                            if (condition.Test())
+                            if(condition.Test())
                             {
                                 doExclude = true;
                                 excludeStartDepth = currentExcludeDepth;
@@ -1685,9 +1075,9 @@ namespace Thry.ThryEditor
                         }
                         currentExcludeDepth++;
                     }
-                    else if (lineParsed.StartsWith("//endex", StringComparison.Ordinal))
+                    else if(lineParsed.StartsWith("//endex", StringComparison.Ordinal))
                     {
-                        if (currentExcludeDepth == 0)
+                        if(currentExcludeDepth == 0)
                         {
                             Debug.LogError("[Shader Optimizer] Number of 'endex' statements does not match number of 'ifex' statements."
                                 +$"\nError found in file '{filePath}' line {i+1}");
@@ -1695,7 +1085,10 @@ namespace Thry.ThryEditor
                         else
                         {
                             currentExcludeDepth--;
-                            if (currentExcludeDepth == excludeStartDepth) doExclude = false;
+                            if(currentExcludeDepth == excludeStartDepth)
+                            {
+                                doExclude = false;
+                            }
                         }
                     }
                     // Specifically requires no whitespace between // and KSOEvaluateMacro
@@ -1716,27 +1109,11 @@ namespace Thry.ThryEditor
                     }
                     continue;
                 }
-                if (doExclude)
-                {
-                    // check for texture property definitions, remove textures later
-                    // needs specific naming
-                    if (lineParsed.EndsWith("{ }", StringComparison.Ordinal) && lineParsed.IndexOf("2D)", StringComparison.Ordinal) >= 0)
-                    {
-                        lineParsed = lineParsed.Substring(0, lineParsed.IndexOf('"'));
-                        if (lineParsed.IndexOf("]", StringComparison.Ordinal) >= 0) // Unity 2019 doesn't like string.Contains(string, StringComparison)
-                        {
-                            lineParsed = lineParsed.Substring(lineParsed.LastIndexOf(']') + 1);
-                        }
-                        lineParsed = lineParsed.Substring(0, lineParsed.IndexOf('('));
-                        lineParsed = lineParsed.Trim();
-                        stripTextures.Add(lineParsed);
-                    }
-                    continue;
-                }
+                if (doExclude) continue;
 
-                // Remove empty lines
+                //removes empty lines
                 if (string.IsNullOrEmpty(lineParsed)) continue;
-                // Remove code that is commented
+                //removes code that is commented
                 if (isCommentedOut && lineParsed.EndsWith("*/", StringComparison.OrdinalIgnoreCase))
                 {
                     isCommentedOut = false;
@@ -1749,18 +1126,19 @@ namespace Thry.ThryEditor
                 }
                 if (isCommentedOut) continue;
 
-                // Remove code from defines blocks
+                //Removed code from defines blocks
                 if (REMOVE_UNUSED_IF_DEFS)
                 {
-                    // Check if line contains a preprocessor conditional (e.g., #if, #ifdef, #ifndef)
+                    //Check if Line contains #ifs
                     if (lineParsed.StartsWith("#if", StringComparison.Ordinal))
                     {
                         bool hasMultiple = lineParsed.Contains('&') || lineParsed.Contains('|');
 
-#if DEBUG_IF_DEF_REMOVAL
-                        removeEndifStackDebugging.AppendLine($"push {ifStacking}" + lineParsed);
-                        removeEndifStackIfLines.Push(lineParsed);
-#endif
+                        if(DEBUG_IF_DEF_REMOVAL)
+                        {
+                            removeEndifStackDebugging.AppendLine($"push {ifStacking}" + lineParsed);
+                            removeEndifStackIfLines.Push(lineParsed);
+                        }
 
                         if (!hasMultiple && lineParsed.StartsWith("#ifdef", StringComparison.Ordinal))
                         {
@@ -1806,7 +1184,7 @@ namespace Thry.ThryEditor
                     }
                     else if (lineParsed.StartsWith("#else"))
                     {
-                        if (removeEndifStack.Count == 0)
+                        if(removeEndifStack.Count == 0)
                         {
                             Debug.LogError("[Shader Optimizer] Number of 'endif' statements does not match number of 'if' statements."
                                 +$"\nError found in file '{filePath}' line {i+1}. Current output copied to clipboard.");
@@ -1819,26 +1197,29 @@ namespace Thry.ThryEditor
                     else if (lineParsed.StartsWith("#endif", StringComparison.Ordinal))
                     {
                         ifStacking--;
-                        if (ifStacking == isNotIncludedAtDepth) isIncluded = true;
-                        // For debugging
-                        if (removeEndifStack.Count == 0)
+                        if (ifStacking == isNotIncludedAtDepth)
+                        {
+                            isIncluded = true;
+                        }
+                        // for debugging
+                        if(removeEndifStack.Count == 0)
                         {
                             Debug.LogError("[Shader Optimizer] Number of 'endif' statements does not match number of 'if' statements."
                                 +$"\nError found in file '{filePath}' line {i+1}. Current output copied to clipboard.");
                             Debug.LogError(removeEndifStackDebugging.ToString());
                             GUIUtility.systemCopyBuffer = string.Join(Environment.NewLine, includedLines);
                         }
-#if DEBUG_IF_DEF_REMOVAL
+                        if(DEBUG_IF_DEF_REMOVAL)
+                        {
                             fileLines[i] += $" // {removeEndifStackIfLines.Peek()}";
                             removeEndifStackDebugging.AppendLine($"pop {ifStacking}" + removeEndifStackIfLines.Pop());
-#endif
-
+                        }
                         if (removeEndifStack.Pop()) continue;
                     }
                     if (!isIncluded) continue;
                 }
 
-                // Remove pragmas
+                //Remove pragmas
                 if (lineParsed.StartsWith("#pragma shader_feature", StringComparison.Ordinal))
                 {
                     string trimmed = lineParsed.Replace("#pragma shader_feature_local", "").Replace("#pragma shader_feature", "").TrimStart();
@@ -1863,11 +1244,13 @@ namespace Thry.ThryEditor
                     if (DefaultUnityShaderIncludes.Contains(includeFilename) == false)
                     {
                         string includeFullpath = includeFilename;
-                        if (includeFilename.StartsWith("Assets/", StringComparison.Ordinal) == false && includeFilename.StartsWith("Packages/", StringComparison.Ordinal) == false) // not absolute
+                        if (includeFilename.StartsWith("Assets/", StringComparison.Ordinal) == false)//not absolute
+                        {
                             includeFullpath = GetFullPath(includeFilename, Path.GetDirectoryName(filePath));
-                        if (!ParseShaderFilesRecursive(filesParsed, newTopLevelDirectory, includeFullpath, macros, material, stripTextures))
+                        }
+                        if (!ParseShaderFilesRecursive(filesParsed, newTopLevelDirectory, includeFullpath, macros, material))
                             return false;
-                        // Change include to be be ralative to only one directory up, because all files are moved into the same folder
+                        //Change include to be be ralative to only one directory up, because all files are moved into the same folder
                         fileLines[i] = fileLines[i].Replace(includeFilename, "/"+includeFilename.Split('/').Last());
                     }
                 }
@@ -1926,11 +1309,9 @@ namespace Thry.ThryEditor
         private static void ReplaceShaderValues(Material material, string[] lines, int startLine, int endLine, 
         MaterialProperty[] props, Dictionary<string,PropertyData> constants, Macro[] macros, GrabPassReplacement[] grabPassVariables)
         {
-#if DEBUG_IF_DEF_REMOVAL
             // print macros and constants
             string c = string.Join("\n" , constants.Select(m => m.Key + " : " + m.Value));
             GUIUtility.systemCopyBuffer = c;
-#endif
 
             List <TextureProperty> uniqueSampledTextures = new List<TextureProperty>();
 
@@ -2171,10 +1552,9 @@ namespace Thry.ThryEditor
                     }
                 }
 
-                for(int t=0;t<tokens.Length;t++)
+                foreach(string token in tokens)
                 {
-                    string token = tokens[t];
-                    if (constants.ContainsKey(token))
+                    if(constants.ContainsKey(token))
                     {
                         PropertyData constant = constants[token];
 
@@ -2183,10 +1563,10 @@ namespace Thry.ThryEditor
                         bool declarationFound = false;
                         while ((constantIndex = lines[i].IndexOf(constant.name, lastIndex, StringComparison.Ordinal)) != -1)
                         {
-                            lastIndex = constantIndex + 1;
+                            lastIndex = constantIndex+1;
                             char charLeft = ' ';
-                            if (constantIndex - 1 >= 0)
-                                charLeft = lines[i][constantIndex - 1];
+                            if (constantIndex-1 >= 0)
+                                charLeft = lines[i][constantIndex-1];
                             char charRight = ' ';
                             if (constantIndex + constant.name.Length < lines[i].Length)
                                 charRight = lines[i][constantIndex + constant.name.Length];
@@ -2196,13 +1576,15 @@ namespace Thry.ThryEditor
                             // Skip inline comments
                             if (charLeft == '*' && charRight == '*' && constantIndex >= 2 && lines[i][constantIndex - 2] == '/')
                                 continue;
-
+                            
                             // Skip basic declarations of unity shader properties i.e. "uniform float4 _Color;"
-                            if (!declarationFound && t > 0)
+                            if (!declarationFound)
                             {
-                                if (ValidPropertyDataTypes.Contains(tokens[t-1]) && lines[i].Substring(constantIndex + constant.name.Length).TrimStart().StartsWith(";", StringComparison.Ordinal))
+                                string precedingText = lines[i].Substring(0, constantIndex-1).TrimEnd(); // whitespace removed string immediately to the left should be float or float4
+                                string restOftheFile = lines[i].Substring(constantIndex + constant.name.Length).TrimStart(); // whitespace removed character immediately to the right should be ;
+                                if (Array.Exists(ValidPropertyDataTypes, x => precedingText.EndsWith(x, StringComparison.Ordinal)) && restOftheFile.StartsWith(";", StringComparison.Ordinal))
                                 {
-                                    constant.lastDeclarationType = tokens[t-1];
+                                    constant.lastDeclarationType = precedingText.TrimStart();
                                     declarationFound = true;
                                     continue;
                                 }
@@ -2212,8 +1594,27 @@ namespace Thry.ThryEditor
                             // This could technically be more efficient by being outside the IndexOf loop
                             StringBuilder sb = new StringBuilder(lines[i].Length * 2);
                             sb.Append(lines[i], 0, constantIndex);
-                            constant.ToCode(sb);
-                            sb.Append(lines[i], constantIndex + constant.name.Length, lines[i].Length - constantIndex - constant.name.Length);
+                            switch (constant.type)
+                            {
+                                case PropertyType.Float:
+                                    string constantValue;
+                                    // Special Handling for ints 
+                                    if(constant.lastDeclarationType == "int")
+                                        constantValue = constant.value.x.ToString("F0", CultureInfo.InvariantCulture);
+                                    else
+                                        constantValue = constant.value.x.ToString("0.0####################", CultureInfo.InvariantCulture);
+
+                                    // Add comment with property name, for easier debug
+                                    sb.Append($"({constantValue} /*{constant.name}*/)");
+                                    break;
+                                case PropertyType.Vector:
+                                    sb.Append("float4("+constant.value.x.ToString(CultureInfo.InvariantCulture)+","
+                                                    +constant.value.y.ToString(CultureInfo.InvariantCulture)+","
+                                                    +constant.value.z.ToString(CultureInfo.InvariantCulture)+","
+                                                    +constant.value.w.ToString(CultureInfo.InvariantCulture)+")");
+                                    break;
+                            }
+                            sb.Append(lines[i], constantIndex+constant.name.Length, lines[i].Length-constantIndex-constant.name.Length);
                             lines[i] = sb.ToString();
 
                             // Check for Unity branches on previous line here?
@@ -2255,15 +1656,13 @@ namespace Thry.ThryEditor
                     lines[i] = lines[i].Replace("UNITY_BRANCH", "").Replace("[branch]", "");
             }
         }
-#endregion
 
-#region Unlocking
         public enum UnlockSuccess { hasNoSavedShader, wasNotLocked, couldNotFindOriginalShader, couldNotDeleteLockedShader,
             success}
         private static void Unlock(Material material, MaterialProperty shaderOptimizer = null)
         {
             //if unlock success set floats. not done for locking cause the sucess is checked later when applying the shaders
-            UnlockSuccess success = UnlockConcrete(material);
+            UnlockSuccess success = ShaderOptimizer.UnlockConcrete(material);
             if (success == UnlockSuccess.success || success == UnlockSuccess.wasNotLocked
                 || success == UnlockSuccess.couldNotDeleteLockedShader)
             {
@@ -2271,23 +1670,12 @@ namespace Thry.ThryEditor
                 else material.SetNumber(GetOptimizerPropertyName(material.shader), 0);
             }
         }
-
         public static bool GuessShader(Shader locked, out Shader shader)
         {
-            return GuessShader(locked?.name, out shader);
-        }
-
-        public static bool GuessShader(string name, out Shader shader)
-        {
-            shader = null;
-            if (string.IsNullOrEmpty(name)) return false;
-
-            if (name.StartsWith("Hidden/"))
-                name = name.Substring(7); // Remove "Hidden/" prefix
-            if (name.StartsWith("Locked/"))
+            string name = locked.name.Substring(7); // Remove "Hidden/" prefix
+            if(name.StartsWith("Locked/"))
                 name = name.Substring(7); // Remove "Locked/" prefix
             name = Regex.Match(name, @".*(?=\/)").Value;
-
             ShaderInfo[] allShaders = ShaderUtil.GetAllShaderInfo();
             int closestDistance = int.MaxValue;
             string closestShaderName = null;
@@ -2295,19 +1683,17 @@ namespace Thry.ThryEditor
             {
                 if (!s.supported) continue;
                 int d = Helper.LevenshteinDistance(s.name, name);
-                if (d < closestDistance)
+                if(d < closestDistance)
                 {
                     closestDistance = d;
                     closestShaderName = s.name;
                 }
             }
-
             // Debug.Log(closestDistance + " < " + (name.Length * 0.5f) + " " + closestShaderName + " " + name);
             shader = Shader.Find(closestShaderName);
             return shader != null && closestDistance < name.Length * 0.5f;
         }
-
-        private static UnlockSuccess UnlockConcrete(Material material)
+        private static UnlockSuccess UnlockConcrete (Material material)
         {
             Shader lockedShader = material.shader;
             // Check if shader is Hidden
@@ -2316,32 +1702,50 @@ namespace Thry.ThryEditor
                 Debug.LogWarning("[Shader Optimizer] Shader " + lockedShader.name + " is not locked.");
                 return UnlockSuccess.wasNotLocked;
             }
+            Shader orignalShader = null;
+            // Check for original shader by name
+            string originalShaderName = material.GetTag(TAG_ORIGINAL_SHADER, false, "");
+            if(originalShaderName == "")
+            {
+                Debug.LogWarning("[Shader Optimizer] Original shader name not saved to material.");
+            }else
+            {
+                orignalShader = Shader.Find(originalShaderName);
+                if (orignalShader == null)
+                {
+                    Debug.LogWarning("[Shader Optimizer] Original shader " + originalShaderName + " could not be found");
+                }
+            }
+            // Check for original shader by GUID
+            if(orignalShader == null)
+            {
+                string originalShaderGUID = material.GetTag(TAG_ORIGINAL_SHADER_GUID, false, "");
+                if(originalShaderGUID != "")
+                {
+                    Debug.LogWarning("[Shader Optimizer] Original shader GUID found. Searching by GUID.");
+                    string originalShaderPath = AssetDatabase.GUIDToAssetPath(originalShaderGUID);
+                    if(string.IsNullOrWhiteSpace(originalShaderPath) == false)
+                        orignalShader = AssetDatabase.LoadAssetAtPath<Shader>(originalShaderPath);
+                    if (orignalShader == null)
+                    {
+                        Debug.LogWarning("[Shader Optimizer] Original shader " + originalShaderGUID + " could not be found");
+                    }
+                }
+            }
+            // Check for original shader by guessing name
+            if(orignalShader == null)
+            {
+                if(GuessShader(lockedShader, out orignalShader))
+                    Debug.LogWarning("[Shader Optimizer] Original shader not saved to material. Guessing shader name.");
+                else
+                    lockedShader = null;
+            }
 
-            Shader originalShader = GetOriginalShader(material);
-            if (originalShader == null)
+            if(orignalShader == null)
             {
                 Debug.LogError("[Shader Optimizer] Original shader not saved to material, could not unlock shader");
                 if(EditorUtility.DisplayDialog("Unlock Material", $"The original shader for {material.name} could not be resolved.\nPlease select a shader manually.", "Ok")) {}
                 return UnlockSuccess.hasNoSavedShader;
-            }
-
-            // Build list of renamed properties
-            string animPropertySuffix = $"_{GetRenamedPropertySuffix(material)}";
-            List<MaterialProperty> renamedProperties = new List<MaterialProperty>();
-            MaterialProperty[] props = MaterialEditor.GetMaterialProperties(new Object[] { material });
-            foreach (MaterialProperty prop in props)
-            {
-                if (prop == null ||
-                    !prop.name.EndsWith(animPropertySuffix, StringComparison.Ordinal)) continue;
-
-                string propName = prop.name.Substring(0, prop.name.Length - animPropertySuffix.Length);
-
-                string animateTag = material.GetTag(propName + AnimatedTagSuffix, false, "");
-                if (string.IsNullOrEmpty(animateTag) || animateTag != "2" || // Property was not renamed.
-                    propName.EndsWith("UV", StringComparison.Ordinal) || propName.EndsWith("Pan", StringComparison.Ordinal) || // Skip over stuff that doesn't get renamed.
-                    IllegalPropertyRenames.Contains(propName)) continue; // This stuff gets duplicated instead of renamed, should this still get reverted?
-
-                renamedProperties.Add(prop); // Properties fetched now retain their value after switching to the unlocked shader.
             }
 
             // For some reason when shaders are swapped on a material the RenderType override tag gets completely deleted and render queue set back to -1
@@ -2350,39 +1754,11 @@ namespace Thry.ThryEditor
             int renderQueue = material.renderQueue;
             string unlockedMaterialGUID = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(material));
             DetourApplyMaterialPropertyDrawers();
-            if (ShaderEditor.Active != null) ShaderEditor.Active.SetShader(originalShader);
-            material.shader = originalShader;
+            material.shader = orignalShader;
             RestoreApplyMaterialPropertyDrawers();
             material.SetOverrideTag("RenderType", renderType);
             material.renderQueue = renderQueue;
             material.shaderKeywords = material.GetTag("OriginalKeywords", false, string.Join(" ", material.shaderKeywords)).Split(' ');
-
-            // Restore stripped textures
-            foreach (string tex in material.GetTexturePropertyNames())
-            {
-                string guid = material.GetTag("_stripped_tex_" + tex, false);
-                if (!string.IsNullOrWhiteSpace(guid))
-                {
-                    material.SetOverrideTag("_stripped_tex_" + tex, "");
-                    material.SetTexture(tex, AssetDatabase.LoadAssetAtPath<Texture>(AssetDatabase.GUIDToAssetPath(guid)));
-                }
-            }
-
-            // Restore values from renamed properties
-            foreach (MaterialProperty prop in renamedProperties)
-            {
-                if (prop == null) continue; // Shouldn't happen but included just in case Unity decides otherwise, maybe raise a warning?
-
-                string propName = prop.name.Substring(0, prop.name.Length - animPropertySuffix.Length);
-                if (!material.HasProperty(propName))
-                {
-                    Debug.LogError($"The expected property ({propName}) for renamed property \"{prop.name}\" was not found on the unlocked shader ({originalShader.name}).");
-
-                    continue;
-                }
-
-                CopyProperty(material, prop, propName);
-            }
 
             // Delete the variants folder and all files in it, as to not orhpan files and inflate Unity project
             // But only if no other material is using the locked shader
@@ -2406,83 +1782,10 @@ namespace Thry.ThryEditor
                 FileUtil.DeleteFileOrDirectory(lockedFolder);
                 FileUtil.DeleteFileOrDirectory(lockedFolder + ".meta");
             }
+            //AssetDatabase.Refresh();
 
             return UnlockSuccess.success;
         }
-
-        private static Shader GetOriginalShaderByName(Material material)
-        {
-            string originalShaderName = material.GetTag(TAG_ORIGINAL_SHADER, false, string.Empty);
-            if (string.IsNullOrEmpty(originalShaderName))
-            {
-                Debug.LogWarning($"[Shader Optimizer] Original shader name not saved to material ({material.name}).");
-
-                return null;
-            }
-
-            Shader originalShader = Shader.Find(originalShaderName);
-            Debug.LogWarning($"[Shader Optimizer] Original shader name \"{originalShaderName}\" could not be found for material \"{material.name}\".");
-
-            return originalShader;
-        }
-
-        private static Shader GetOriginalShaderByGUID(Material material)
-        {
-            string originalShaderGUID = material.GetTag(TAG_ORIGINAL_SHADER_GUID, false, string.Empty);
-            if (string.IsNullOrEmpty(originalShaderGUID))
-            {
-                Debug.LogWarning($"[Shader Optimizer] Original shader GUID not saved to material ({material.name}).");
-
-                return null;
-            }
-
-            Shader originalShader = null;
-
-            string originalShaderPath = AssetDatabase.GUIDToAssetPath(originalShaderGUID);
-            if (!string.IsNullOrWhiteSpace(originalShaderPath))
-                originalShader = AssetDatabase.LoadAssetAtPath<Shader>(originalShaderPath);
-
-            if (originalShader == null)
-                Debug.LogWarning($"[Shader Optimizer] Original shader GUID {originalShaderGUID} could not be found for material \"{material.name}\".");
-
-            return originalShader;
-        }
-
-        public static Shader GetOriginalShader(Material material)
-        {
-            if (material == null) return null;
-
-            // Check for original shader by GUID
-            Shader originalShader = GetOriginalShaderByGUID(material);
-            if (originalShader != null) return originalShader;
-
-            // Check for original shader by exact name
-            originalShader = GetOriginalShaderByName(material);
-            if (originalShader != null) return originalShader;
-
-            // Nothing to go by.
-            if (material.shader == null)
-            {
-                Debug.LogWarning($"[Shader Optimizer] Original shader not saved to material ({material.name}) and the current shader is missing.");
-
-                return null;
-            }
-
-            // Check for original shader by guessing name
-            if (GuessShader(material.shader, out originalShader))
-            {
-                Debug.LogWarning($"[Shader Optimizer] Original shader not saved to material ({material.name}).\n" +
-                    $"Guessed shader name from current shader ({material.shader.name}) to be \"{originalShader.name}\".");
-            }
-            else
-            {
-                Debug.LogWarning($"[Shader Optimizer] Original shader not saved to material ({material.name}).\n" +
-                    $"Guessing shader name from current shader ({material.shader.name}) failed.");
-            }
-
-            return originalShader;
-        }
-#endregion
 
         public static void DeleteTags(Material[] materials)
         {
@@ -2491,20 +1794,23 @@ namespace Thry.ThryEditor
                 var it = new SerializedObject(m).GetIterator();
                 while (it.Next(true))
                 {
-                    if (it.name != "stringTagMap") continue;
-                    
-                    for (int i = 0; i < it.arraySize; i++)
+                    if (it.name == "stringTagMap")
                     {
-                        string tagName = it.GetArrayElementAtIndex(i).displayName;
-                        if (!tagName.EndsWith(AnimatedTagSuffix)) continue;
-
-                        m.SetOverrideTag(tagName, "");
+                        for (int i = 0; i < it.arraySize; i++)
+                        {
+                            string tagName = it.GetArrayElementAtIndex(i).displayName;
+                            if (tagName.EndsWith(AnimatedTagSuffix))
+                            {
+                                m.SetOverrideTag(tagName, "");
+                            }
+                        }
                     }
                 }
             }
         }
 
-#region Upgrade
+        #region Upgrade
+
         public static void UpgradeAnimatedPropertiesToTagsOnAllMaterials()
         {
             IEnumerable<Material> materials = Resources.FindObjectsOfTypeAll<Material>();
@@ -2515,7 +1821,7 @@ namespace Thry.ThryEditor
         public static void UpgradeAnimatedPropertiesToTags(IEnumerable<Material> iMaterials)
         {
             IEnumerable<Material> materialsToChange = iMaterials.Where(m => m != null &&
-                !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m)) && !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m.shader))
+                string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m)) == false && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m.shader)) == false
                 && IsShaderUsingThryOptimizer(m.shader)).Distinct().OrderBy(m => m.shader.name);
 
             int i = 0;
@@ -2535,10 +1841,13 @@ namespace Thry.ThryEditor
                     {
                         string[] parts = line.Substring(6, line.Length - 6).Split(':');
                         float f;
-                        if (float.TryParse(parts[1], out f) && f != 0)
+                        if (float.TryParse(parts[1], out f))
                         {
-                            string name = parts[0].Substring(0, parts[0].Length - AnimatedPropertySuffix.Length);
-                            m.SetOverrideTag(name + AnimatedTagSuffix, "" + f);
+                            if( f != 0)
+                            {
+                                string name = parts[0].Substring(0, parts[0].Length - AnimatedPropertySuffix.Length);
+                                m.SetOverrideTag(name + AnimatedTagSuffix, "" + f);
+                            }
                         }
                     }
                 }
@@ -2557,9 +1866,145 @@ namespace Thry.ThryEditor
 
             clearMethod.Invoke(null, null);
         }
-#endregion
 
-        
+        #endregion
+
+        // ifex indenting
+        [MenuItem("Assets/Thry/Shaders/Ifex Indenting", false, 303)]
+        static void IfExIndenting()
+        {
+            Shader s = Selection.objects[0] as Shader;
+            if (s == null) return;
+            string path = AssetDatabase.GetAssetPath(s);
+            if(string.IsNullOrEmpty(path)) return;
+            // Load the shader file
+            string[] lines = File.ReadAllLines(path);
+            int indent = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                if (line.Contains("//endex")) indent = Mathf.Max(0,indent - 1);
+                lines[i] = new string(' ', indent * 4) + line;
+                if (line.StartsWith("//ifex")) indent++;
+            }
+            GUIUtility.systemCopyBuffer = string.Join("\n", lines);
+        }
+
+        [MenuItem("Assets/Thry/Shaders/Ifex Indenting", true)]
+        static bool IfExIndentingValidator()
+        {
+            return Selection.objects.Length == 1 && Selection.objects[0] is Shader;
+        }
+
+        //---GameObject + Children Locking
+
+        [MenuItem("GameObject/Thry/Materials/Unlock All", false,0)]
+        static void UnlockAllChildren()
+        {
+            SetLockForAllChildren(Selection.gameObjects, 0, true);
+        }
+
+        [MenuItem("GameObject/Thry/Materials/Lock All", false,0)]
+        static void LockAllChildren()
+        {
+            SetLockForAllChildren(Selection.gameObjects, 1, true);
+        }
+
+        //---Asset Unlocking
+
+        [MenuItem("Assets/Thry/Materials/Unlock All", false, 303)]
+        static void UnlockAllMaterials()
+        {
+            IEnumerable<Material> mats = Selection.assetGUIDs.Select(g => AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g)));
+            SetLockedForAllMaterials(mats, 0, true);
+        }
+
+        [MenuItem("Assets/Thry/Materials/Unlock All", true)]
+        static bool UnlockAllMaterialsValidator()
+        {
+            return SelectedObjectsAreLockableMaterials();
+        }
+
+        //---Asset Locking
+
+        [MenuItem("Assets/Thry/Materials/Lock All", false, 303)]
+        static void LockAllMaterials()
+        {
+            IEnumerable<Material> mats = Selection.assetGUIDs.Select(g => AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g)));
+            SetLockedForAllMaterials(mats, 1, true);
+        }
+
+        [MenuItem("Assets/Thry/Materials/Lock All", true)]
+        static bool LockAllMaterialsValidator()
+        {
+            return SelectedObjectsAreLockableMaterials();
+        }
+
+        //----Folder Lock
+
+        //This does not work for folders on the left side of the project explorer, because they are not exposed to Selection
+        [MenuItem("Assets/Thry/Materials/Lock Folder", false, 303)]
+        static void LockFolder()
+        {
+            IEnumerable<string> folderPaths = Selection.objects.Select(o => AssetDatabase.GetAssetPath(o)).Where(p => Directory.Exists(p));
+            List<Material> materials = new List<Material>();
+            foreach (string f in folderPaths) FindMaterialsRecursive(f, materials);
+            SetLockedForAllMaterials(materials, 1, true);
+        }
+
+        [MenuItem("Assets/Thry/Materials/Lock Folder", true)]
+        static bool LockFolderValidator()
+        {
+            return Selection.objects.Select(o => AssetDatabase.GetAssetPath(o)).Where(p => Directory.Exists(p)).Count() == Selection.objects.Length;
+        }
+
+        //-----Folder Unlock
+
+        [MenuItem("Assets/Thry/Materials/Unlock Folder", false, 303)]
+        static void UnLockFolder()
+        {
+            IEnumerable<string> folderPaths = Selection.objects.Select(o => AssetDatabase.GetAssetPath(o)).Where(p => Directory.Exists(p));
+            List<Material> materials = new List<Material>();
+            foreach (string f in folderPaths) FindMaterialsRecursive(f, materials);
+            SetLockedForAllMaterials(materials, 0, true);
+        }
+
+        [MenuItem("Assets/Thry/Materials/Unlock Folder", true)]
+        static bool UnLockFolderValidator()
+        {
+            return Selection.objects.Select(o => AssetDatabase.GetAssetPath(o)).Where(p => Directory.Exists(p)).Count() == Selection.objects.Length;
+        }
+
+        private static void FindMaterialsRecursive(string folderPath, List<Material> materials)
+        {
+            foreach(string f in Directory.GetFiles(folderPath))
+            {
+                if(AssetDatabase.GetMainAssetTypeAtPath(f) == typeof(Material))
+                {
+                    materials.Add(AssetDatabase.LoadAssetAtPath<Material>(f));
+                }
+            }
+            foreach(string f in Directory.GetDirectories(folderPath)){
+                FindMaterialsRecursive(f, materials);
+            }
+        }
+
+        //----Folder Unlock
+
+        static bool SelectedObjectsAreLockableMaterials()
+        {
+            if (Selection.assetGUIDs != null && Selection.assetGUIDs.Length > 0)
+            {
+                return Selection.assetGUIDs.All(g =>
+                {
+                    if (AssetDatabase.GetMainAssetTypeAtPath(AssetDatabase.GUIDToAssetPath(g)) != typeof(Material))
+                        return false;
+                    Material m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g));
+                    return IsShaderUsingThryOptimizer(m.shader);
+                });
+            }
+            return false;
+        }
 
         //----VRChat Callback to force Locking on upload
 
@@ -2586,7 +2031,7 @@ namespace Thry.ThryEditor
                 }
                 
 #endif
-                if(SetLockedForAllMaterialsInternal(materials, 1, showProgressbar: true, showDialog: PersistentData.Get<bool>("ShowLockInDialog", true), allowCancel: false) == false)
+                if(SetLockedForAllMaterials(materials, 1, showProgressbar: true, showDialog: PersistentData.Get<bool>("ShowLockInDialog", true), allowCancel: false) == false)
                     return false;
                 //returning true all the time, because build process cant be stopped it seems
                 return true;
@@ -2613,13 +2058,13 @@ namespace Thry.ThryEditor
                             }
                         }
                     }
-                    SetLockedForAllMaterialsInternal(materials, 1, showProgressbar: true, showDialog: PersistentData.Get<bool>("ShowLockInDialog", true), allowCancel: false);
+                    SetLockedForAllMaterials(materials, 1, showProgressbar: true, showDialog: PersistentData.Get<bool>("ShowLockInDialog", true), allowCancel: false);
                 }
                 return true;
             }
         }
 #endif
-#region Stripping
+
         const string DidStripUnlockedShadersSessionStateKey = "ShaderOptimizerDidStripUnlockedShaders";
         public class StripUnlockedShadersFromBuild : UnityEditor.Build.IPreprocessShaders
         {
@@ -2629,7 +2074,7 @@ namespace Thry.ThryEditor
             public void OnProcessShader(Shader shader, UnityEditor.Rendering.ShaderSnippetData snippet, IList<UnityEditor.Rendering.ShaderCompilerData> data)
             {
                 // Don't strip if the user disabled it (developer mode only)
-                if(Config.Instance.enableDeveloperMode && Config.Instance.disableUnlockedShaderStrippingOnBuild)
+                if(Config.Singleton.enableDeveloperMode && Config.Singleton.disableUnlockedShaderStrippingOnBuild)
                     return;
 
                 // Strip shaders from the build under the following conditions:
@@ -2674,7 +2119,245 @@ namespace Thry.ThryEditor
                 }
             }
         }
-#endregion
+
+        static string MaterialToShaderPropertyHash(Material m)
+        {
+            StringBuilder stringBuilder = new StringBuilder(m.shader.name);
+
+            foreach (MaterialProperty prop in
+                     MaterialEditor.GetMaterialProperties(new Object[] { m }))
+            {
+                string propName = prop.name;
+
+                if (PropertiesToSkipInMaterialEquallityComparission.Contains(propName)) continue;
+
+                string isAnimated = GetAnimatedTag(m, propName);
+
+                if (isAnimated == "1")
+                {
+                    stringBuilder.Append(isAnimated);
+                }
+                else if(isAnimated == "2")
+                {
+                    //This is because materials with renaming should not share shaders
+                    stringBuilder.Append(m.name);
+                }
+                else
+                {
+
+                    switch (prop.propertyType)
+                    {
+                        case UnityEngine.Rendering.ShaderPropertyType.Color:
+                            stringBuilder.Append(m.GetColor(propName).ToString());
+                            break;
+                        case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                            stringBuilder.Append(m.GetVector(propName).ToString());
+                            break;
+                        case UnityEngine.Rendering.ShaderPropertyType.Range:
+                        case UnityEngine.Rendering.ShaderPropertyType.Float:
+                            stringBuilder.Append(m.GetFloat(propName)
+                                .ToString(CultureInfo.InvariantCulture));
+                            break;
+#if UNITY_2022_1_OR_NEWER
+                        case UnityEngine.Rendering.ShaderPropertyType.Int:
+                            stringBuilder.Append(m.GetInt(propName)
+                                .ToString(CultureInfo.InvariantCulture));
+                            break;
+#endif
+                        case UnityEngine.Rendering.ShaderPropertyType.Texture:
+                            Texture t = m.GetTexture(propName);
+                            Vector4 texelSize = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+                            if (t != null)
+                                texelSize = new Vector4(1.0f / t.width, 1.0f / t.height, t.width, t.height);
+
+                            stringBuilder.Append(m.GetTextureOffset(propName).ToString());
+                            stringBuilder.Append(m.GetTextureScale(propName).ToString());
+                            break;
+                    }
+                }
+            }
+
+            // https://forum.unity.com/threads/hash-function-for-game.452779/
+            ASCIIEncoding encoding = new ASCIIEncoding();
+            byte[] bytes = encoding.GetBytes(stringBuilder.ToString());
+            var sha = new MD5CryptoServiceProvider();
+            return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLower();
+        }
+
+        public static bool SetLockForAllChildren(GameObject[] objects, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true)
+        {
+            IEnumerable<Material> materials = objects.Select(o => o.GetComponentsInChildren<Renderer>(true)).SelectMany(rA => rA.SelectMany(r => r.sharedMaterials));
+            return SetLockedForAllMaterials(materials, lockState, showProgressbar, showDialog);
+        }
+
+        static Dictionary<string, List<Material>> s_shaderPropertyCombinations = new Dictionary<string, List<Material>>();
+        public static bool SetLockedForAllMaterials(IEnumerable<Material> materials, int lockState, bool showProgressbar = false, bool showDialog = false, bool allowCancel = true, MaterialProperty shaderOptimizer = null)
+        {
+            Helper.RegisterEditorUse();
+            //first the shaders are created. compiling is suppressed with start asset editing
+            AssetDatabase.StartAssetEditing();
+
+            bool isLocking = lockState == 1;
+
+            //Get cleaned materia list
+            // The GetPropertyDefaultFloatValue is changed from 0 to 1 when the shader is locked in
+            IEnumerable<Material> materialsToChangeLock = materials.Where(m => m != null 
+                && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m)) == false 
+                && string.IsNullOrEmpty(AssetDatabase.GetAssetPath(m.shader)) == false
+                && IsShaderUsingThryOptimizer(m.shader)
+                &&  (   m.shader.name.StartsWith("Hidden/Locked/")
+                    || (m.shader.name.StartsWith("Hidden/") && m.GetTag("OriginalShader",false,"") != "" 
+                        && m.shader.GetPropertyDefaultFloatValue(m.shader.FindPropertyIndex(GetOptimizerPropertyName(m.shader))) == 1)
+                    ) != isLocking)
+                .Distinct();
+
+            // Make sure keywords are set correctly for materials to be locked. If unlocking, do this after the shaders are unlocked
+            if(isLocking && Config.Singleton.fixKeywordsWhenLocking)
+                ShaderEditor.FixKeywords(materialsToChangeLock);
+
+            float i = 0;
+            float length = materialsToChangeLock.Count();
+
+            //show popup dialog if defined
+            if (showDialog && length > 0)
+            {
+                if(EditorUtility.DisplayDialog("Locking Materials", EditorLocale.editor.Get("auto_lock_dialog").ReplaceVariables(length), "More information","OK"))
+                {
+                    Application.OpenURL("https://www.youtube.com/watch?v=asWeDJb5LAo");
+                }
+                PersistentData.Set("ShowLockInDialog", false);
+            }
+
+            //Create shader assets
+            foreach (Material m in materialsToChangeLock.ToList()) //have to call ToList() here otherwise the Unlock Shader button in the ShaderGUI doesn't work
+            {
+                //do progress bar
+                if (showProgressbar)
+                {
+                    if (allowCancel)
+                    {
+                        if (EditorUtility.DisplayCancelableProgressBar(isLocking ? "Locking Materials" : "Unlocking Materials", m.name, i / length)) break;
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayProgressBar(isLocking ? "Locking Materials" : "Unlocking Materials", m.name, i / length);
+                    }
+                }
+                //create the assets
+                try
+                {
+                    if (isLocking)
+                    {
+                        string hash = MaterialToShaderPropertyHash(m);
+                        // Check that shader has already been created for this hash and still exists
+                        // Or that the shader is being created for this has during this session
+                        Material reference = null;
+                        if(s_shaderPropertyCombinations.ContainsKey(hash))
+                        {
+
+                            reference = s_shaderPropertyCombinations[hash].FirstOrDefault(m2 => m2 != m && (materialsToChangeLock.Contains(m2) || Shader.Find(applyStructsLater[m2].newShaderName) != null));
+                        }
+                        if (reference != null)
+                        {
+                            // Reuse existing shader and struct
+                            ApplyStruct applyStruct = applyStructsLater[reference];
+                            applyStruct.material = m;
+                            applyStructsLater[m] = applyStruct;
+                            //Disable shader keywords
+                            foreach (string keyword in m.shaderKeywords)
+                                if (m.IsKeywordEnabled(keyword)) m.DisableKeyword(keyword);
+
+                        }
+                        // Create new locked shader
+                        else
+                        {
+                            ShaderOptimizer.Lock(m,
+                                MaterialEditor.GetMaterialProperties(new UnityEngine.Object[] { m }),
+                                applyShaderLater: true);
+                            s_shaderPropertyCombinations[hash] = new List<Material>();
+                        }
+                        // Add material to list of materials with same shader property hash
+                        s_shaderPropertyCombinations[hash].Add(m);
+                        // Update TAG_ALL_MATERIALS_GUIDS_USING_THIS_LOCKED_SHADER of all materials with same shader property hash
+                        string tag = string.Join(",", s_shaderPropertyCombinations[hash].Select(m2 => AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(m2))));
+                        foreach (Material m2 in s_shaderPropertyCombinations[hash])
+                            m2.SetOverrideTag(TAG_ALL_MATERIALS_GUIDS_USING_THIS_LOCKED_SHADER, tag);
+                    }
+                    else if (!isLocking)
+                    {
+                        ShaderOptimizer.Unlock(m, shaderOptimizer);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.Log(e);
+                    string position = e.StackTrace.Split('\n').FirstOrDefault(l => l.Contains("ThryEditor"));
+                    if(position != null)
+                    {
+                        position = position.Split(new string[]{ "ThryEditor" }, StringSplitOptions.None).LastOrDefault();
+                        Debug.LogError("Could not un-/lock material " + m.name + " | Error thrown at " + position+ "\n"+e.StackTrace);
+                    }else
+                    {
+                        Debug.LogError("Could not un-/lock material " + m.name + "\n"+e.StackTrace);
+                    }
+                    EditorUtility.ClearProgressBar();
+                    AssetDatabase.StopAssetEditing();
+                    return false;
+                }
+                i++;
+            }
+
+            EditorUtility.ClearProgressBar();
+
+            // In case any keywords were messed up in the material following unlock, fix them now
+            if (!isLocking && Config.Singleton.fixKeywordsWhenLocking)
+                ShaderEditor.FixKeywords(materialsToChangeLock);
+
+            AssetDatabase.StopAssetEditing();
+            //unity now compiles all the shaders
+
+            //now all new shaders are applied. this has to happen after unity compiled the shaders
+            if (isLocking)
+            {
+                AssetDatabase.Refresh();
+                //Apply new shaders
+                foreach (Material m in materialsToChangeLock)
+                {
+                    if (ShaderOptimizer.LockApplyShader(m))
+                    {
+                        m.SetNumber(GetOptimizerPropertyName(m.shader), 1);
+                    }
+                }
+            }
+            AssetDatabase.Refresh();
+
+            // Make sure things get saved after a cycle. This prevents thumbnails from getting stuck
+            if(Config.Singleton.saveAfterLockUnlock)
+                EditorApplication.update += QueueSaveAfterLockUnlock;
+
+            if (ShaderEditor.Active != null && ShaderEditor.Active.IsDrawing)
+            {
+                GUIUtility.ExitGUI();
+            }
+                
+            return true;
+        }
+
+        // This is just a wrapper so that it waits a cycle before saving
+        static void QueueSaveAfterLockUnlock()
+        {
+            EditorApplication.update -= QueueSaveAfterLockUnlock;
+            EditorApplication.update += SaveAfterLockUnlock;
+        }
+
+        static void SaveAfterLockUnlock()
+        {
+            if (ShaderUtil.anythingCompiling)
+                return;
+
+            EditorApplication.update -= SaveAfterLockUnlock;
+            AssetDatabase.SaveAssets();
+        }
 
         public static string GetOptimizerPropertyName(Shader shader)
         {
@@ -2745,6 +2428,211 @@ namespace Thry.ThryEditor
                 }
             }
             return 0;*/
+        }
+    }
+
+    public class UnlockedMaterialsList : EditorWindow
+    {
+        private Vector2 scrollPosition = Vector2.zero;
+
+        static Dictionary<Shader, List<Material>> unlockedMaterialsByShader = new Dictionary<Shader, List<Material>>();
+        static Dictionary<Shader, List<Material>> lockedMaterialsByShader = new Dictionary<Shader, List<Material>>();
+        static Dictionary<Material, Shader> lockedMaterialsByOriginalShader = new Dictionary<Material, Shader>();
+        static Dictionary<String, bool> unlockedFoldouts = new Dictionary<String, bool>();
+        static Dictionary<String, bool> lockedFoldouts = new Dictionary<String, bool>();
+        string searchTerm = "";
+
+        private void OnEnable()
+        {
+            UpdateList();
+            scrollPosition = Vector2.zero;
+        }
+
+        bool LockAllWarning(List<Material> materialsToLock)
+        {
+            return EditorUtility.DisplayDialog("Lock All Materials", $"You're about to lock {materialsToLock.Count} materials. This might take a while. Are you sure you want to proceed?", "Lock All", "Cancel");
+        }
+
+        bool UnlockAllWarning(List<Material> materialsToUnlock)
+        {
+            return EditorUtility.DisplayDialog("Unlock All Materials", $"You're about to unlock {materialsToUnlock.Count} materials. This might cause crashes if over 64 textures are used in all materials on a single shader.\n\nAre you sure you want to proceed?", "Unlock All", "Cancel");
+        }
+
+        void UpdateList()
+        {
+            lockedMaterialsByOriginalShader.Clear();
+            unlockedMaterialsByShader.Clear();
+            lockedMaterialsByShader.Clear();
+            string[] guids = AssetDatabase.FindAssets($"t:material {searchTerm}");
+            float step = 1.0f / guids.Length;
+            float f = 0;
+            EditorUtility.DisplayProgressBar("Searching materials...", "", f);
+
+            List<Material> unlockedMaterials = new List<Material>();
+            List<Material> lockedMaterials = new List<Material>();
+
+            foreach (string g in guids)
+            {
+                Material m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(g));
+                if (m != null && m.shader != null && ShaderOptimizer.IsShaderUsingThryOptimizer(m.shader))
+                {
+                    if(ShaderOptimizer.IsMaterialLocked(m))
+                        lockedMaterials.Add(m);
+                    else
+                        unlockedMaterials.Add(m);
+                }
+                f = f + step;
+                EditorUtility.DisplayProgressBar("Searching materials...", m.name, f);
+            }
+            foreach (IGrouping<Shader, Material> materials in unlockedMaterials.GroupBy(m => m.shader))
+            {
+                unlockedMaterialsByShader.Add(materials.Key, materials.ToList());
+                if(!unlockedFoldouts.ContainsKey(materials.Key.name))
+                    unlockedFoldouts.Add(materials.Key.name, false);
+            }
+
+            foreach (Material material in lockedMaterials)
+            {
+                string originalShaderName = material.GetTag(ShaderOptimizer.TAG_ORIGINAL_SHADER, false, "");
+                Shader originalShader = null;
+                if (originalShaderName == "" && originalShader == null) ShaderOptimizer.GuessShader(material.shader, out originalShader);
+                if (originalShader == null) originalShader = Shader.Find(originalShaderName);
+
+                if (originalShader != null)
+                {
+                    if (!lockedMaterialsByShader.ContainsKey(originalShader))
+                        lockedMaterialsByShader[originalShader] = new List<Material>();
+                    lockedMaterialsByShader[originalShader].Add(material);
+
+                    if (!lockedFoldouts.ContainsKey(originalShader.name))
+                        lockedFoldouts.Add(originalShader.name, false);
+                }
+            }
+            EditorUtility.ClearProgressBar();
+        }
+
+        private void OnGUI()
+        {
+            List<Material> materialsToLock = new List<Material>();
+            
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.BeginHorizontal();
+            searchTerm = EditorGUILayout.DelayedTextField(searchTerm);
+            if (GUILayout.Button("Update/Search") || EditorGUI.EndChangeCheck()) 
+                UpdateList();
+            EditorGUILayout.EndHorizontal();
+            int unlockedMaterials = unlockedMaterialsByShader.Values.SelectMany(col => col).ToList().Count;
+            int lockedMaterials = lockedMaterialsByShader.Values.SelectMany(col => col).ToList().Count;
+
+            EditorGUILayout.Space(10, true);
+
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+            EditorGUILayout.LabelField($"Unlocked Materials ({unlockedMaterials})", Styles.EDITOR_LABEL_HEADER);
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Lock All")) 
+            {
+                List<Material> allUnlockedMaterials = unlockedMaterialsByShader.Values.SelectMany(col => col).ToList();
+                if(LockAllWarning(allUnlockedMaterials))
+                    materialsToLock = allUnlockedMaterials;
+            }
+            if (GUILayout.Button("Expand All")) unlockedFoldouts.Keys.ToList().ForEach(f => unlockedFoldouts[f] = true);
+            if (GUILayout.Button("Collapse All")) unlockedFoldouts.Keys.ToList().ForEach(f => unlockedFoldouts[f] = false);
+
+            EditorGUILayout.EndHorizontal();
+
+            if (unlockedMaterialsByShader.Count == 0)
+                GUILayout.Label("No Locked materials found for search term.", Styles.greenStyle);
+
+            foreach (KeyValuePair<Shader, List<Material>> shaderMaterials in unlockedMaterialsByShader)
+            {
+                EditorGUILayout.Space();
+
+                unlockedFoldouts[shaderMaterials.Key.name] = EditorGUILayout.BeginFoldoutHeaderGroup(unlockedFoldouts[shaderMaterials.Key.name], $"{shaderMaterials.Key.name} ({shaderMaterials.Value.Count.ToString()})");
+                if (unlockedFoldouts[shaderMaterials.Key.name])
+                {
+                    if (GUILayout.Button("Lock All")) 
+                    {
+                        if(LockAllWarning(shaderMaterials.Value))
+                            materialsToLock = shaderMaterials.Value;
+                    }
+
+                    foreach (Material m in shaderMaterials.Value)
+                    {
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.ObjectField(m, typeof(Material), false);
+                        //EditorGUILayout.IntField(ShaderOptimizer.GetUsedTextureReferencesCount(m.shader));
+                        if (GUILayout.Button("Lock"))
+                            materialsToLock.Add(m);
+
+                        EditorGUILayout.EndHorizontal();
+                    }
+                }
+                EditorGUILayout.EndFoldoutHeaderGroup();
+            }
+
+            if (materialsToLock.Count > 0)
+            {
+                ShaderOptimizer.SetLockedForAllMaterials(materialsToLock, 1, true, false, true);
+                materialsToLock.Clear();
+                UpdateList();
+            }
+
+            EditorGUILayout.Space(10, true);
+
+            EditorGUILayout.LabelField($"Locked Materials ({lockedMaterials})", Styles.EDITOR_LABEL_HEADER);
+            List<Material> materialsToUnlock = new List<Material>();
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Unlock All"))
+            {
+                List<Material> allLockedMaterials = lockedMaterialsByShader.Values.SelectMany(col => col).ToList();
+                if (UnlockAllWarning(allLockedMaterials))
+                {
+                    materialsToUnlock = allLockedMaterials;
+                }
+            }
+            if (GUILayout.Button("Expand All")) lockedFoldouts.Keys.ToList().ForEach(f => lockedFoldouts[f] = true);
+            if (GUILayout.Button("Collapse All")) lockedFoldouts.Keys.ToList().ForEach(f => lockedFoldouts[f] = false);
+
+            EditorGUILayout.EndHorizontal();
+
+            if (lockedMaterialsByShader.Count == 0)
+                GUILayout.Label("No Unlocked materials found for search term.", Styles.greenStyle);
+
+            foreach (KeyValuePair<Shader, List<Material>> shaderMaterials in lockedMaterialsByShader)
+            {
+                EditorGUILayout.Space();
+
+                lockedFoldouts[shaderMaterials.Key.name] = EditorGUILayout.BeginFoldoutHeaderGroup(lockedFoldouts[shaderMaterials.Key.name], $"{shaderMaterials.Key.name} ({shaderMaterials.Value.Count.ToString()})");
+                if (lockedFoldouts[shaderMaterials.Key.name])
+                {
+                    if (GUILayout.Button("Unlock All")) 
+                    {
+                        if(UnlockAllWarning(shaderMaterials.Value))
+                            materialsToUnlock = shaderMaterials.Value;
+                    }
+
+                    foreach (Material m in shaderMaterials.Value)
+                    {
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.ObjectField(m, typeof(Material), false);
+                        //EditorGUILayout.IntField(ShaderOptimizer.GetUsedTextureReferencesCount(m.shader));
+                        if (GUILayout.Button("Unlock"))
+                            materialsToUnlock.Add(m);
+
+                        EditorGUILayout.EndHorizontal();
+                    }
+                }
+                EditorGUILayout.EndFoldoutHeaderGroup();
+            }
+
+            if (materialsToUnlock.Count > 0)
+            {
+                ShaderOptimizer.SetLockedForAllMaterials(materialsToUnlock, 0, true, false, true);
+                materialsToUnlock.Clear();
+                UpdateList();
+            }
+            EditorGUILayout.EndScrollView();
         }
     }
 }

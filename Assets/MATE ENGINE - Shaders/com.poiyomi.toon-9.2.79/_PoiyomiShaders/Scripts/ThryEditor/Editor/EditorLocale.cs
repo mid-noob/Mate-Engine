@@ -1,9 +1,7 @@
 ﻿using System.Collections.Generic;
-using System.Text;
-using Thry.ThryEditor.Helpers;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class EditorLocale
     {
@@ -34,7 +32,7 @@ namespace Thry.ThryEditor
         public string Get(string key)
         {
             if(dictionary.ContainsKey(key)) return dictionary[key][selected_locale_index];
-            Debug.LogWarning($"Locale[{key}] could not be found.");
+            Debug.LogWarning("Locale[key] could not be found.");
             return key;
         }
 
@@ -119,7 +117,7 @@ namespace Thry.ThryEditor
             List<List<string>> lines = new List<List<string>>();
             List<string> current_line = new List<string>();
             lines.Add(current_line);
-            StringBuilder current_value = new StringBuilder();
+            string current_value = "";
             bool in_apostrpoh = false;
             for (int i = 0; i < array.Length; i++)
             {
@@ -127,15 +125,15 @@ namespace Thry.ThryEditor
                     i += 1;
                 if (!in_apostrpoh && (array[i] == '\n'))
                 {
-                    current_line.Add(current_value.ToString());
+                    current_line.Add(current_value);
                     current_line = new List<string>();
                     lines.Add(current_line);
-                    current_value.Clear();
+                    current_value = "";
                 }
                 else if (!in_apostrpoh && array[i] == ',')
                 {
-                    current_line.Add(current_value.ToString());
-                    current_value.Clear();
+                    current_line.Add(current_value);
+                    current_value = "";
                 }
                 else if (!in_apostrpoh && array[i] == '"')
                 {
@@ -147,15 +145,15 @@ namespace Thry.ThryEditor
                 }
                 else if (in_apostrpoh && array[i] == '"' && array[i + 1] == '"')
                 {
-                    current_value.Append('"');
+                    current_value += '"';
                     i += 1;
                 }
                 else
                 {
-                    current_value.Append(array[i]);
+                    current_value += array[i];
                 }
             }
-            current_line.Add(current_value.ToString());
+            current_line.Add(current_value);
             return lines;
         }
     }

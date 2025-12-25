@@ -1,8 +1,7 @@
-﻿using Thry.ThryEditor.Helpers;
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class DecalTool : EditorWindow
     {
@@ -15,8 +14,6 @@ namespace Thry.ThryEditor
         private MaterialProperty _propUVChannel;
         private Material _material;
         private Material _gizmoMaterial;
-        private int _initalUndoGroup;
-        private bool _doDiscard = false;
 
         public static DecalTool OpenDecalTool(Material m)
         {
@@ -24,7 +21,6 @@ namespace Thry.ThryEditor
             window._material = m;
             window._gizmoMaterial = new Material(AssetDatabase.LoadAssetAtPath<Shader>(AssetDatabase.GUIDToAssetPath(GUID_GIZMO_SHADER)));
             window._gizmoMaterial.color = Color.white;
-            window._initalUndoGroup = Undo.GetCurrentGroup();
             return window;
         }
 
@@ -41,44 +37,19 @@ namespace Thry.ThryEditor
 
         private void OnGUI()
         {
-            if(_propPosition == null || _material.mainTexture == null)
+            if(_propPosition == null)
             {
                 return;
             }
             HandleInput();
-            if(_material.mainTexture == null)
-                EditorGUI.DrawTextureTransparent(new Rect(0, 0, position.width, position.height), Texture2D.grayTexture, ScaleMode.StretchToFill);
-            else
-                EditorGUI.DrawTextureTransparent(new Rect(0, 0, position.width, position.height), _material.mainTexture, ScaleMode.StretchToFill);
+            // EditorGUI.DrawPreviewTexture(new Rect(0, 0, position.width, position.height), _material.mainTexture, _material);
+            EditorGUI.DrawTextureTransparent(new Rect(0, 0, position.width, position.height), _material.mainTexture, ScaleMode.StretchToFill);
             _gizmoMaterial.SetVector("_Position", _propPosition.vectorValue);
             _gizmoMaterial.SetVector("_Scale", _propScale.vectorValue);
             _gizmoMaterial.SetFloat("_Rotation", _propRotation.floatValue);
             _gizmoMaterial.SetVector("_Offset", _propOffset.vectorValue);
             _gizmoMaterial.SetNumber("_UVChannel", _propUVChannel.GetNumber());
             EditorGUI.DrawPreviewTexture(new Rect(0, 0, position.width, position.height), Texture2D.whiteTexture, _gizmoMaterial);
-
-            if(Event.current.type == EventType.KeyUp && Event.current.keyCode == KeyCode.Escape)
-            {
-                Event.current.Use();
-                Undo.RevertAllDownToGroup(_initalUndoGroup);
-                _doDiscard = true;
-                this.Close();
-            }
-        }
-
-        private void OnDestroy()
-        {
-            // Close() throws an exception, if called from OnGUI
-            // GUI Error: Invalid GUILayout state in DockArea view. Verify that all layout Begin/End calls match
-            // /shrug, idk how to fix that, so I just disable the log for a frame
-            bool isLoggerEnabled = Debug.unityLogger.logEnabled;
-            Debug.unityLogger.logEnabled = false;
-            if(!_doDiscard)
-            {
-                Undo.SetCurrentGroupName("Apply Decal Texture Tool");
-                Undo.CollapseUndoOperations(_initalUndoGroup);
-            }
-            EditorApplication.delayCall += () => Debug.unityLogger.logEnabled = isLoggerEnabled;
         }
 
         private Vector2 _lastMousePosition;

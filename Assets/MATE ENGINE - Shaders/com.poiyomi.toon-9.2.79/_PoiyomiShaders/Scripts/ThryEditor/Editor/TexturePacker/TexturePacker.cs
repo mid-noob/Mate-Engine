@@ -2,17 +2,17 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Thry.ThryEditor.Helpers;
 using UnityEditor;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class TexturePacker : EditorWindow
     {
         const int MIN_WIDTH = 850;
         const int MIN_HEIGHT = 790;
 
+        [MenuItem("Thry/Texture Packer", priority = 100)]
         public static TexturePacker ShowWindow()
         {
             TexturePacker packer = (TexturePacker)GetWindow(typeof(TexturePacker));
@@ -23,14 +23,14 @@ namespace Thry.ThryEditor
             return packer;
         }
 
-        [MenuItem("Assets/Thry/Textures/Open in Texture Packer")]
+        [MenuItem("Assets/Thry/Open in Texture Packer")]
         public static void OpenInTexturePacker()
         {
             TexturePacker packer = ShowWindow();
             packer.InitilizeWithOneTexture(Selection.activeObject as Texture2D);
         }
 
-        [MenuItem("Assets/Thry/Textures/Open in Texture Packer", true)]
+        [MenuItem("Assets/Thry/Open in Texture Packer", true)]
         public static bool OpenInTexturePackerValidate()
         {
             return Selection.activeObject is Texture2D;
@@ -41,7 +41,7 @@ namespace Thry.ThryEditor
         public enum TextureChannelOut { R, G, B, A, None }
         public enum BlendMode { Add, Multiply, Max, Min }
         public enum InvertMode { None, Invert}
-        public enum SaveType { PNG, JPG, EXR }
+        public enum SaveType { PNG, JPG }
         public enum InputType { Texture, Color, Gradient }
         public enum GradientDirection { Horizontal, Vertical }
         public enum KernelPreset { None, Custom, EdgeDetection, Sharpen, GaussianBlur3x3, GaussianBlur5x5 }
@@ -63,7 +63,6 @@ namespace Thry.ThryEditor
             {
                 case SaveType.PNG: return ".png";
                 case SaveType.JPG: return ".jpg";
-                case SaveType.EXR: return ".exr";
                 default: return ".png";
             }
         }
@@ -114,12 +113,15 @@ namespace Thry.ThryEditor
             {
             }
 
-            public void SetInputTexture(Texture2D tex)
+            public TextureSource(Texture2D tex)
+            {
+                SetTexture(tex);
+            }
+
+            public void SetTexture(Texture2D tex)
             {
                 Texture = tex;
-                TextureTexture = tex;
                 FilterMode = tex != null ? tex.filterMode : FilterMode.Bilinear;
-                if (tex != null) InputType = InputType.Texture;
             }
 
             public static void SetUncompressedTextureDirty(Texture2D tex)
@@ -294,13 +296,13 @@ namespace Thry.ThryEditor
         List<Connection> _connections = new List<Connection>();
         Connection _creatingConnection;
         Texture2D _outputTexture;
-        ColorSpace _colorSpace = ColorSpace.Linear;
+        ColorSpace _colorSpace = ColorSpace.Uninitialized;
         FilterMode _filterMode = FilterMode.Bilinear;
 
-        string _saveFolder = "Assets";
+        string _saveFolder;
         string _saveName;
         SaveType _saveType = SaveType.PNG;
-        float _saveQuality = 75;
+        float _saveQuality = 1;
         bool _showTransparency = true;
         bool _alphaIsTransparency = true;
 
@@ -370,17 +372,16 @@ namespace Thry.ThryEditor
             _imageAdjust = new ImageAdjust();
             DeterminePathAndFileNameIfEmpty(true);
             DetermineImportSettings();
-            DetermineOutputResolution(_textureSources, _imageAdjust);
             Pack();
         }
 
         void InitilizeWithOneTexture(Texture2D texture)
         {
             _connections.Clear();
-            _textureSources[0].SetInputTexture(texture);
-            _textureSources[1].SetInputTexture(texture);
-            _textureSources[2].SetInputTexture(texture);
-            _textureSources[3].SetInputTexture(texture);
+            _textureSources[0].SetTexture(texture);
+            _textureSources[1].SetTexture(texture);
+            _textureSources[2].SetTexture(texture);
+            _textureSources[3].SetTexture(texture);
             // Add connections
             _connections.Add(Connection.CreateFull(0, TextureChannelIn.R, TextureChannelOut.R));
             _connections.Add(Connection.CreateFull(1, TextureChannelIn.G, TextureChannelOut.G));
@@ -433,7 +434,7 @@ namespace Thry.ThryEditor
             EditorGUILayout.Space(15);
             Rect backgroundImageSettings = EditorGUILayout.BeginVertical();
             backgroundImageSettings = new RectOffset(5, 5, 5, 5).Add(backgroundImageSettings);
-            GUI.DrawTexture(backgroundImageSettings, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Colors.backgroundDark, 0, 10);
+            GUI.DrawTexture(backgroundImageSettings, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Styles.COLOR_BACKGROUND_1, 0, 10);
 
             EditorGUI.BeginChangeCheck();
             _colorSpace = (ColorSpace)EditorGUILayout.EnumPopup(_colorSpace);
@@ -612,7 +613,7 @@ namespace Thry.ThryEditor
         {
             Rect bg = new Rect(position.width / 2 - 150, 10, 300, 30);
             Rect rObjField = new RectOffset(5, 5, 5, 5).Remove(bg);
-            GUI.DrawTexture(bg, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Colors.backgroundDark, 0, 10);
+            GUI.DrawTexture(bg, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Styles.COLOR_BACKGROUND_1, 0, 10);
 
             if(_config == null)
             {
@@ -717,7 +718,7 @@ namespace Thry.ThryEditor
             Rect r = EditorGUILayout.BeginHorizontal();
 
             Rect background = new Rect(r.x + r.width / 2 - 400, r.y - 5, 800, 97);
-            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Colors.backgroundDark, 0, 10);
+            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Styles.COLOR_BACKGROUND_1, 0, 10);
 
             GUILayout.FlexibleSpace();
             // show current path
@@ -851,7 +852,7 @@ namespace Thry.ThryEditor
 
             // Draw background
             Rect background = new Rect(buttonR.x + 10, rect.y - 20, (rect.x + rect.width + 5) - (buttonR.x + 10), rect.height + 25);
-            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Colors.backgroundDark, 0, 10);
+            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Styles.COLOR_BACKGROUND_1, 0, 10);
 
             if(_showTransparency)
                 EditorGUI.DrawTextureTransparent(rect, texture != null ? texture : Texture2D.blackTexture, ScaleMode.ScaleToFit, 1);
@@ -935,7 +936,7 @@ namespace Thry.ThryEditor
             Rect filterRect = new Rect(textureRect.x, textureRect.y + textureHeight, textureRect.width, 20);
 
             Rect background = new Rect(rect.x - 5, rect.y - 5, rect.width + channelWidth + 40, rect.height + 10);
-            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Colors.backgroundDark, 0, 10);
+            GUI.DrawTexture(background, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 1, Styles.COLOR_BACKGROUND_1, 0, 10);
 
             // Draw textrue & filtermode. Change filtermode if texture is changed
             EditorGUI.BeginChangeCheck();
@@ -964,7 +965,7 @@ namespace Thry.ThryEditor
                             // Needs to call these itself because it's in a callback not the OnGUI method
                             Pack();
                             Repaint();
-                        }, texture.GradientDirection == GradientDirection.Vertical, false, _imageAdjust.Resolution, new Vector2Int(8192, 8192));
+                        }, texture.GradientDirection == GradientDirection.Vertical, false, _imageAdjust.Resolution, new Vector2Int(4096, 4096));
 
                     }
                     EditorGUI.BeginChangeCheck();
@@ -1132,7 +1133,7 @@ namespace Thry.ThryEditor
             int height = colorAdjust.Resolution.y;
             
 
-            RenderTexture target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+            RenderTexture target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
             target.enableRandomWrite = true;
             target.filterMode = targetFilterMode;
             target.Create();
@@ -1171,7 +1172,7 @@ namespace Thry.ThryEditor
                 // define the opposite way, because each loop flips it
                 RenderTexture filterTarget = target;
 
-                RenderTexture filterInput = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+                RenderTexture filterInput = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 filterInput.enableRandomWrite = true;
                 filterInput.filterMode = targetFilterMode;
                 filterInput.Create();
@@ -1190,7 +1191,7 @@ namespace Thry.ThryEditor
                 target = filterTarget;
             }
 
-            Texture2D atlas = new Texture2D(width, height, TextureFormat.RGBA64, true, targetColorSpace == ColorSpace.Linear);
+            Texture2D atlas = new Texture2D(width, height, TextureFormat.RGBA32, true, targetColorSpace == ColorSpace.Linear);
             RenderTexture.active = target;
             atlas.ReadPixels(new Rect(0, 0, width, height), 0, 0);
             atlas.filterMode = targetFilterMode;
@@ -1266,16 +1267,15 @@ namespace Thry.ThryEditor
 
 
 
-        void ExportChannel(RenderTexture renderTex, Vector4 lerpR, Vector4 lerpG, Vector4 lerpB, Vector4 lerpA, Vector4 add, string namePostfix)
+        void ExportChannel(RenderTexture renderTex, Vector4 lerpR, Vector4 lerpG, Vector4 lerpB, Vector4 lerpA , string namePostfix)
         {
             ComputeShader.SetVector("Channels_Strength_R", lerpR);
             ComputeShader.SetVector("Channels_Strength_G", lerpG);
             ComputeShader.SetVector("Channels_Strength_B", lerpB);
             ComputeShader.SetVector("Channels_Strength_A", lerpA);
-            ComputeShader.SetVector("Channels_Add", add);
             ComputeShader.Dispatch(2, _outputTexture.width / 8, _outputTexture.height / 8, 1);
 
-            Texture2D tex = new Texture2D(renderTex.width, renderTex.height, TextureFormat.RGBA64, true, _colorSpace == ColorSpace.Linear);
+            Texture2D tex = new Texture2D(renderTex.width, renderTex.height, TextureFormat.RGBA32, true, _colorSpace == ColorSpace.Linear);
             RenderTexture.active = renderTex;
             tex.ReadPixels(new Rect(0, 0, renderTex.width, renderTex.height), 0, 0);
             tex.filterMode = renderTex.filterMode;
@@ -1291,7 +1291,7 @@ namespace Thry.ThryEditor
             Pack();
             DeterminePathAndFileNameIfEmpty();
 
-            RenderTexture target = new RenderTexture(_outputTexture.width, _outputTexture.height, 24, RenderTextureFormat.ARGB64, RenderTextureReadWrite.Linear);
+            RenderTexture target = new RenderTexture(_outputTexture.width, _outputTexture.height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
             target.enableRandomWrite = true;
             target.filterMode = _outputTexture.filterMode;
             target.Create();
@@ -1303,28 +1303,27 @@ namespace Thry.ThryEditor
             Vector4 b = new Vector4(0, 0, 1, 0);
             Vector4 a = new Vector4(0, 0, 0, 1);
             Vector4 none = new Vector4(0, 0, 0, 0);
-            Vector4 addAlpha = new Vector4(0, 0, 0, 1);
             if(exportAsBlackAndWhite)
             {
                 if(_channel_export[0])
-                    ExportChannel(target, r, r, r, none, addAlpha, "_R");
+                    ExportChannel(target, r, r, r, none, "_R");
                 if(_channel_export[1])
-                    ExportChannel(target, g, g, g, none, addAlpha, "_G");
+                    ExportChannel(target, g, g, g, none, "_G");
                 if(_channel_export[2])
-                    ExportChannel(target, b, b, b, none, addAlpha, "_B");
+                    ExportChannel(target, b, b, b, none, "_B");
                 if(_channel_export[3])
-                    ExportChannel(target, a, a, a, none, addAlpha, "_A");
+                    ExportChannel(target, a, a, a, none, "_A");
             }
             else
             {
                 if(_channel_export[0])
-                    ExportChannel(target, r, none, none, none, none, "_R");
+                    ExportChannel(target, r, none, none, none, "_R");
                 if(_channel_export[1])
-                    ExportChannel(target, none, g, none, none, none, "_G");
+                    ExportChannel(target, none, g, none, none, "_G");
                 if(_channel_export[2])
-                    ExportChannel(target, none, none, b, none, none, "_B");
+                    ExportChannel(target, none, none, b, none, "_B");
                 if(_channel_export[3])
-                    ExportChannel(target, none, none, none, a, none, "_A");
+                    ExportChannel(target, none, none, none, a, "_A");
             }
         }
 
@@ -1349,7 +1348,6 @@ namespace Thry.ThryEditor
             {
                 case SaveType.PNG: bytes = _outputTexture.EncodeToPNG(); break;
                 case SaveType.JPG: bytes = _outputTexture.EncodeToJPG((int)_saveQuality); break;
-                case SaveType.EXR: bytes = _outputTexture.EncodeToEXR(); break;
             }
             System.IO.File.WriteAllBytes(path, bytes);
             AssetDatabase.Refresh();
@@ -1361,7 +1359,7 @@ namespace Thry.ThryEditor
             importer.alphaIsTransparency = _alphaIsTransparency;
             importer.textureCompression = TextureImporterCompression.Compressed;
             TextureImporterFormat overwriteFormat = importer.DoesSourceTextureHaveAlpha() ? 
-                Config.Instance.texturePackerCompressionWithAlphaOverwrite : Config.Instance.texturePackerCompressionNoAlphaOverwrite;
+                Config.Singleton.texturePackerCompressionWithAlphaOverwrite : Config.Singleton.texturePackerCompressionNoAlphaOverwrite;
             if(overwriteFormat != TextureImporterFormat.Automatic)
             {
                 importer.SetPlatformTextureSettings(new TextureImporterPlatformSettings()
@@ -1412,7 +1410,7 @@ namespace Thry.ThryEditor
             importer.alphaIsTransparency = texture.alphaIsTransparency;
             importer.textureCompression = TextureImporterCompression.Compressed;
             TextureImporterFormat overwriteFormat = importer.DoesSourceTextureHaveAlpha() ? 
-                Config.Instance.texturePackerCompressionWithAlphaOverwrite : Config.Instance.texturePackerCompressionNoAlphaOverwrite;
+                Config.Singleton.texturePackerCompressionWithAlphaOverwrite : Config.Singleton.texturePackerCompressionNoAlphaOverwrite;
             if(overwriteFormat != TextureImporterFormat.Automatic)
             {
                 importer.SetPlatformTextureSettings(new TextureImporterPlatformSettings()

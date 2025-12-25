@@ -1,6 +1,8 @@
-﻿using UnityEngine;
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class Mediator
     {
@@ -18,6 +20,6 @@ namespace Thry.ThryEditor
             }
         }
 
-        public static ShaderPart copy_part;
+        public static ShaderPart transfer_group;
     }
 }

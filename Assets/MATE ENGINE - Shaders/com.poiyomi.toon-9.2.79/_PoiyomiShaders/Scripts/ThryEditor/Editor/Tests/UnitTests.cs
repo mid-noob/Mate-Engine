@@ -3,27 +3,19 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class UnitTests
     {
-        [MenuItem("Thry/ThryEditor/Dev Test/Run Timed Tests", priority = 100)]
-        static void RunTimeTest()
+        [MenuItem("Thry/ShaderUI/Test/Custom Test")]
+        public static void CustomTest()
         {
-            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-            sw.Start();
-
-            for (int i = 0; i < 1000; i++)
-            {
-                RunUnitTests();
-            }
-
-            sw.Stop();
-
-            Debug.Log($"Ran 1000 tests in {sw.ElapsedMilliseconds}ms");
+            List<(Type, string)> tests = GetParserTests();
+            (Type, string) problem = tests[2];
+            Parser.Deserialize(problem.Item2, problem.Item1);
         }
 
-        [MenuItem("Thry/ThryEditor/Dev Test/Run Parser Tests", priority = 100)]
+        [MenuItem("Thry/ShaderUI/Test/Run Unit Tests")]
         public static void RunUnitTests()
         {
             int testCount = 0;
@@ -43,46 +35,22 @@ namespace Thry.ThryEditor
                     serialized1 = Parser.Serialize(obj);
                     obj2 = Parser.Deserialize(serialized1, test.t);
                     serialized2 = Parser.Serialize(obj2);
-                }
-                catch (Exception e)
+                }catch(Exception e)
                 {
                     Debug.LogError($"Failed to deserialize {test.t.Name} with error {e.Message}");
                     continue;
                 }
                 bool passed = serialized1 == serialized2 && serialized1 != null;
-                Debug.Assert(passed, $"Serialization of {test.t.Name} failed. \nSerialized1: {serialized1} \nSerialized2: {serialized2}");
+                Debug.Assert(passed, $"Serialization of {test.t.Name} failed. Serialized1: {serialized1} Serialized2: {serialized2}");
                 passedTests += passed ? 1 : 0;
                 testCount++;
             }
-
-            TextAsset prettyPrint = AssetDatabase.LoadAssetAtPath<TextAsset>(AssetDatabase.GUIDToAssetPath("8a14ffedc8094d1409692f3adda63884"));
-            Person deserialized = Parser.Deserialize<Person>(prettyPrint.text);
-            Debug.Log($"Deserialized: {deserialized.surname}");
-            string serialized = Parser.Serialize(deserialized, prettyPrint: true);
-            bool passedPrettyPrint = prettyPrint.text.Replace("\r","") == serialized;
-            Debug.Assert(passedPrettyPrint, $"Pretty print test failed. Expected: {prettyPrint.text} Got: {serialized}");
-            testCount ++;
-            passedTests += passedPrettyPrint ? 1 : 0;
-
             if(testCount == passedTests)
             {
                 Debug.Log($"<color=#00ff00ff>Passed all tests</color>");
             }else
             {
                 Debug.Log($"<color=#ff7f00ff>Passed {passedTests}/{testCount} tests</color>");
-            }
-        }
-
-        class Person
-        {
-            public string surname;
-            public string name;
-            public int age;
-            public House house;
-            public class House
-            {
-                public string address;
-                public string[] rooms;
             }
         }
 

@@ -2,10 +2,8 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using Thry;
 using UnityEditor;
 using UnityEngine;
-using Thry.ThryEditor.Helpers;
 
 namespace Poi.Tools
 {
@@ -83,10 +81,17 @@ namespace Poi.Tools
                     var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
                     if (obj != null)
                     {
-                        if (obj is Shader shader && ShaderHelper.IsShaderUsingThryEditor(shader))
+                        if (obj.GetType() == typeof(Shader))
                         {
-                            if(ShaderHelper.IsShaderUsingThryEditor(shader) && shader.name.ToLowerInvariant().Contains("poiyomi pro"))
-                                continue;
+                            var shader = obj as Shader;
+                            int index = shader.FindPropertyIndex(Thry.ShaderEditor.PROPERTY_NAME_EDITOR_DETECT);
+                            if (index != -1)
+                            {
+                                if (shader.name.ToLowerInvariant().Contains("poiyomi pro"))
+                                {
+                                    continue;
+                                }
+                            }
                         }
                     }
                     newList.Add(m_ExportPackageItemsArray[i]);
@@ -96,7 +101,7 @@ namespace Poi.Tools
                 newList.ToArray().CopyTo(newListArray, 0);
                 PackageExport_ExportPackageItemsField.SetValue(PackageExport_Window, newListArray);
             }
-            Helper.RestoreDetour(PackageExport_ExportMethod);
+            Thry.Helper.RestoreDetour(PackageExport_ExportMethod);
             EditorApplication.delayCall += DetourExportMethod;
             // Delay needed because the Invoke below likely exits somewhere
             // causing this method to stop calling (I think?!)
@@ -105,7 +110,7 @@ namespace Poi.Tools
 
         private static void DetourExportMethod()
         {
-            Helper.TryDetourFromTo(PackageExport_ExportMethod, CustomExport_Method);
+            Thry.Helper.TryDetourFromTo(PackageExport_ExportMethod, CustomExport_Method);
         }
 
         static void AssetDatabaseOnimportPackageStarted(string packagename)

@@ -5,13 +5,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text.RegularExpressions;
-using Thry.ThryEditor.Helpers;
 using UnityEditor;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class UnityHelper
     {
@@ -113,68 +111,6 @@ namespace Thry.ThryEditor
 
             FileHelper.WriteStringToFile(shaderCode, path);
         }
-
-        static MethodInfo[] method_PropertyBeginOriginal = typeof(MaterialProperty).GetMethods(BindingFlags.Static | BindingFlags.NonPublic).Where(m => m.Name == "BeginProperty").ToArray();
-        static MethodInfo method_PropertyEnd = typeof(MaterialProperty).GetMethod("EndProperty", BindingFlags.Static | BindingFlags.NonPublic);
-        static MethodInfo[] method_PropertyBeginPatch = typeof(UnityHelper).GetMethods(BindingFlags.Static | BindingFlags.NonPublic).Where(m => m.Name == "BeginPropertyPatch").ToArray();
-        static MethodInfo method_PropertyEndPatch = typeof(UnityHelper).GetMethod(nameof(EndPropertyPatch), BindingFlags.NonPublic | BindingFlags.Static);
-
-        static void EndPropertyPatch() { }
-        static void BeginPropertyPatch(UnityEditor.MaterialProperty prop, UnityEngine.Object[] objs) { }
-        static void BeginPropertyPatch(int prop, UnityEngine.Object[] objs) { }
-        static void BeginPropertyPatch(UnityEngine.Rect r, UnityEditor.MaterialProperty prop, int serialized, UnityEngine.Object[] obs, System.Single f) { }
-
-        public class DetourMaterialPropertyVariantIcon : IDisposable
-        {
-            public DetourMaterialPropertyVariantIcon()
-            {
-#if UNITY_2022_1_OR_NEWER
-                for (int i = 0; i < method_PropertyBeginOriginal.Length; i++)
-                    Helper.TryDetourFromTo(method_PropertyBeginOriginal[i], method_PropertyBeginPatch[i]);
-                Helper.TryDetourFromTo(method_PropertyEnd, method_PropertyEndPatch);
-#endif
-            }
-
-            public void Dispose()
-            {
-#if UNITY_2022_1_OR_NEWER
-                for (int i = 0; i < method_PropertyBeginOriginal.Length; i++)
-                    Helper.RestoreDetour(method_PropertyBeginOriginal[i]);
-                Helper.RestoreDetour(method_PropertyEnd);
-#endif
-            }
-        }
-
-
-
-        static MethodInfo m_StopAnimationRecording = typeof(UnityEditor.AnimationMode).GetMethod("StopAnimationRecording", BindingFlags.Static | BindingFlags.NonPublic);
-        public static void StopAnimationRecording()
-        {
-            if (m_StopAnimationRecording == null)
-                Debug.LogError("StopAnimationRecording not found");
-            else
-                m_StopAnimationRecording.Invoke(null, null);
-        }
-
-        static MethodInfo m_StartAnimationRecording = typeof(UnityEditor.AnimationMode).GetMethod("StartAnimationRecording", BindingFlags.Static | BindingFlags.NonPublic);
-        public static void StartAnimationRecording()
-        {
-            if (m_StartAnimationRecording == null)
-                Debug.LogError("StartAnimationRecording not found");
-            else
-                m_StartAnimationRecording.Invoke(null, null);
-        }
-        
-        static MethodInfo m_InAnimationRecording = typeof(UnityEditor.AnimationMode).GetMethod("InAnimationRecording", BindingFlags.Static | BindingFlags.NonPublic);
-        public static bool InAnimationRecording()
-        {
-            if (m_InAnimationRecording == null)
-                Debug.LogError("StartAnimationRecording not found");
-            else
-                return (bool)m_InAnimationRecording.Invoke(null, null);
-            return false;
-        }
-
     }
 
     public static class UnityExtensions
@@ -334,7 +270,8 @@ namespace Thry.ThryEditor
             if (CheckForEditorRemove(assets))
             {
                 Debug.Log("[Thry] ShaderEditor is being deleted.");
-                Config.Instance.ClearVersion();
+                Config.Singleton.verion = "0";
+                Config.Singleton.Save();
             }
         }
 

@@ -1,10 +1,8 @@
 ﻿using System.Collections.Generic;
-using System.Linq;
-using Thry.ThryEditor.Helpers;
 using UnityEditor;
 using UnityEngine;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class MaterialLinker
     {
@@ -20,7 +18,6 @@ namespace Thry.ThryEditor
                 if(parsed!=null)
                     foreach (string[] material_cloud in parsed)
                     {
-                        if(material_cloud == null) continue;
                         List<Material> materials = new List<Material>();
                         for (int i = 1; i < material_cloud.Length; i++)
                         {
@@ -52,7 +49,7 @@ namespace Thry.ThryEditor
                 }
                 save_structre.Add(value);
             }
-            FileHelper.WriteStringToFile(Parser.Serialize(save_structre, prettyPrint: true),PATH.LINKED_MATERIALS_FILE);
+            FileHelper.WriteStringToFile(Parser.ObjectToString(save_structre),PATH.LINKED_MATERIALS_FILE);
         }
 
         public static bool IsLinked(MaterialProperty p)
@@ -61,16 +58,16 @@ namespace Thry.ThryEditor
             return linked_materials.ContainsKey(((Material)p.targets[0], p.name));
         }
 
-        public static IEnumerable<Material> GetLinked(MaterialProperty p)
+        public static List<Material> GetLinked(MaterialProperty p)
         {
             return GetLinked((Material)p.targets[0], p);
         }
 
-        public static IEnumerable<Material> GetLinked(Material m, MaterialProperty p)
+        public static List<Material> GetLinked(Material m, MaterialProperty p)
         {
             Load();
-            if(linked_materials.TryGetValue((m,p.name), out List<Material> links))
-                return links.Where(l => l != m);
+            if (linked_materials.ContainsKey((m,p.name)))
+                return linked_materials[(m,p.name)];
             return null;
         }
 
@@ -162,7 +159,7 @@ namespace Thry.ThryEditor
         }
 
         private static MaterialLinkerPopupWindow window;
-        public static void Popup(Rect activeation_rect, IEnumerable<Material> linked_materials, MaterialProperty p)
+        public static void Popup(Rect activeation_rect, List<Material> linked_materials, MaterialProperty p)
         {
             Vector2 pos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
             pos.x = Mathf.Min(EditorWindow.focusedWindow.position.x + EditorWindow.focusedWindow.position.width - 250, pos.x);
@@ -183,7 +180,7 @@ namespace Thry.ThryEditor
             private List<Material> linked_materials;
             private MaterialProperty materialProperty;
 
-            public void Init(IEnumerable<Material> linked_materials, MaterialProperty p)
+            public void Init(List<Material> linked_materials, MaterialProperty p)
             {
                 if (linked_materials == null)
                     linked_materials = new List<Material>();
@@ -204,7 +201,7 @@ namespace Thry.ThryEditor
             {
                 GUILayout.Label("Linked Materials", EditorStyles.boldLabel);
                 float listMaxHeight = this.position.height - 110;
-                GUILib.DrawListField<Material>(linked_materials, listMaxHeight, ref scrollPos);
+                GuiHelper.DrawListField<Material>(linked_materials, listMaxHeight, ref scrollPos);
                 GUILayout.Box("Drag and Drop new Material", EditorStyles.helpBox, GUILayout.MinHeight(30));
                 //Rect drag_rect = GUILayoutUtility.GetLastRect();
                 Rect lastRect = GUILayoutUtility.GetLastRect();

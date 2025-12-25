@@ -2,17 +2,18 @@
 // Copyright (C) 2019 Thryrallo
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
-using Thry.ThryEditor.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace Thry.ThryEditor
+namespace Thry
 {
     public class WebHelper
     {
@@ -40,13 +41,11 @@ namespace Thry.ThryEditor
                 bool fetching = true;
                 while (fetching)
                 {
-#pragma warning disable CS0618 // Type or member is obsolete
                     if (request.isHttpError || request.isNetworkError)
                     {
                         fetching = false;
                         Debug.Log(request.error);
                     }
-#pragma warning restore CS0618 // Type or member is obsolete
                     if (request.isDone)
                     {
                         fetching = false;
