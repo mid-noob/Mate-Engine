@@ -18,6 +18,7 @@ Material:
   - _RIM2STYLE_POIYOMI
   - _RIMSTYLE_POIYOMI
   - _STOCHASTICMODE_DELIOT_HEITZ
+  - _SUNDISK_SIMPLE
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -1295,7 +1296,7 @@ Material:
     - _GlitterColorMapUV: 0
     - _GlitterColorThemeIndex: 0
     - _GlitterContrast: 300
-    - _GlitterEnable: 0
+    - _GlitterEnable: 1
     - _GlitterFrequency: 300
     - _GlitterHideInShadow: 0
     - _GlitterHueShift: 0
@@ -2556,7 +2557,7 @@ Material:
     - m_modifierCategory: 0
     - m_postprocessing: 0
     - m_renderingCategory: 0
-    - m_specialFXCategory: 0
+    - m_specialFXCategory: 1
     - m_start_ALDecalSpectrum: 0
     - m_start_ALVolumeColor: 0
     - m_start_Alpha: 0
@@ -2663,7 +2664,7 @@ Material:
     - m_start_emission3Options: 0
     - m_start_emissionOptions: 0
     - m_start_flipBook: 0
-    - m_start_glitter: 0
+    - m_start_glitter: 1
     - m_start_internalparallax: 0
     - m_start_matcap: 0
     - m_start_mirrorOptions: 0
